@@ -559,13 +559,14 @@ def file_storage():
     st.markdown(f"<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>File Storage</h2>", unsafe_allow_html=True)
     st.info("Upload a text/image file or create a text file below:")
     
+    # File Upload Form
     with st.form("file_upload_form", clear_on_submit=True):
         st.markdown("<span class='input-label'>Select Action</span>", unsafe_allow_html=True)
         action = st.radio(
             "Choose an action",
             ("Upload File", "Create Text File"),
             horizontal=True,
-            key="file_action",
+            key="file_action_radio",
             label_visibility="collapsed"
         )
         
@@ -573,43 +574,75 @@ def file_storage():
         file_name = st.text_input(
             "File Name",
             placeholder="Enter file name (e.g., myfile.txt)",
-            key="file_name",
+            key="file_name_input",
             label_visibility="collapsed"
         )
 
+        file = None
+        text_content = None
         if action == "Upload File":
             st.markdown("<span class='input-label'>Select File</span>", unsafe_allow_html=True)
             file = st.file_uploader(
                 "Choose a file",
                 type=['txt', 'jpg', 'png'],
-                key="file_upload",
+                key="file_uploader_input",
                 label_visibility="collapsed"
             )
-            text_content = None
-        else:
+        elif action == "Create Text File":
             st.markdown("<span class='input-label'>Text Content</span>", unsafe_allow_html=True)
             text_content = st.text_area(
                 "Enter text content",
                 placeholder="Type your text here...",
-                key="text_content",
+                key="text_content_input",
                 label_visibility="collapsed"
             )
-            file = None
 
         if st.form_submit_button("Submit", type="primary", use_container_width=True):
-            if file_name:
+            if not file_name:
+                st.error("❌ Please provide a file name.")
+            else:
                 student_id = st.session_state.user['student_id']
                 if upload_file(student_id, file_name, file=file, text_content=text_content):
                     st.rerun()
     
+    # File List with Preview
     st.markdown("<h3 style='color: #003087; font-size: 16px; font-weight: 600; margin-top: 1rem;'>Your Files</h3>", unsafe_allow_html=True)
     files = get_user_files(st.session_state.user['student_id'])
     if files:
         for file in files:
-            st.markdown(f"<div class='uploaded-file'>{file['file_name']} (Uploaded: {file['upload_date']})</div>", unsafe_allow_html=True)
+            file_path = Path(file['file_path'])
+            file_ext = file_path.suffix.lower()
+            file_size = file_path.stat().st_size / 1024  # Size in KB
+            st.markdown(
+                f"<div class='uploaded-file'>{file['file_name']} (Uploaded: {file['upload_date']} | Size: {file_size:.2f} KB)</div>",
+                unsafe_allow_html=True
+            )
+            
+            # Preview for Text and Image Files
+            with st.expander(f"Preview {file['file_name']}"):
+                if file_ext == ".txt":
+                    try:
+                        with open(file_path, "r", encoding="utf-8") as f:
+                            content = f.read()
+                        st.text(content)
+                    except UnicodeDecodeError:
+                        with open(file_path, "r", encoding="latin1") as f:
+                            content = f.read()
+                        st.text(content)
+                elif file_ext in [".jpg", ".png"]:
+                    st.image(file_path, caption=file['file_name'], use_column_width=True)
+            
+            # Delete Button
+            if st.button("Delete", key=f"delete_{file['file_name']}"):
+                try:
+                    file_path.unlink()
+                    st.success(f"✅ File '{file['file_name']}' deleted successfully!")
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"⚠️ Error deleting file: {e}")
     else:
         st.markdown("<div class='uploaded-file'>No files uploaded yet.</div>", unsafe_allow_html=True)
-
+        
 def admin_dashboard():
     st.markdown(f"<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>Admin Dashboard</h2>", unsafe_allow_html=True)
     st.success(f"Welcome, {st.session_state.user['username']}!")
@@ -831,7 +864,7 @@ with st.container():
                     teacher_dashboard()
         else:
             if st.session_state.login_type == "Student":
-                st.markdown("<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>Student Login</h2>", unsafe_allow_html=True)
+                st.markdown("<h2 style='color: #FFFFFF; font-size: 42px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>Student Login</h2>", unsafe_allow_html=True)
                 
                 with st.form("student_login_form", clear_on_submit=True):
                     st.markdown("<span class='input-label'>Student ID</span>", unsafe_allow_html=True)
