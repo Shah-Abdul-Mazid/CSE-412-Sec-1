@@ -269,15 +269,11 @@ if 'show_add_student' not in st.session_state:
 if 'current_page' not in st.session_state:
     st.session_state.current_page = None
 
-# Create uploads directory
-UPLOAD_DIR = Path("uploads")
-UPLOAD_DIR.mkdir(exist_ok=True)
-
 # Database connection
 def get_db_connection():
     try:
         return pymysql.connect(
-            host='localhost',
+            host='127.0.0.1',
             port=9000,
             user='root',
             password='root',
@@ -289,14 +285,13 @@ def get_db_connection():
         st.error(f"⚠️ Database connection failed: {e}")
         return None
 
-# File upload/create function (handles both uploaded files and created text files)
-def upload_file(student_id, file_name, file=None, text_content=None):
+# File upload/create function
+def upload_file(user_id, file_name, file=None, text_content=None):
     if not file_name:
         st.error("❌ Please provide a file name.")
         return False
 
     if file:
-        # Handle uploaded file
         allowed_types = ['text/plain', 'image/jpeg', 'image/png']
         if file.type not in allowed_types:
             st.error("❌ Only text (.txt) and image (.jpg, .png) files are allowed.")
@@ -308,14 +303,19 @@ def upload_file(student_id, file_name, file=None, text_content=None):
 
         file_extension = file.name.split('.')[-1].lower()
     elif text_content is not None:
-        # Handle created text file
         file_extension = 'txt'
     else:
         st.error("❌ Please provide a file or text content.")
         return False
 
-    unique_filename = f"{student_id}_{datetime.now().strftime('%Y%m%d%H%M%S')}.{file_extension}"
-    file_path = UPLOAD_DIR / unique_filename
+    # Use student_id for students, username for admins/teachers
+    folder_name = user_id
+    user_dir = Path(folder_name)
+    user_dir.mkdir(exist_ok=True)
+
+    # Use original file name with timestamp to avoid conflicts
+    unique_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{file_name}.{file_extension}"
+    file_path = user_dir / unique_filename
 
     try:
         with open(file_path, "wb" if file else "w") as f:
@@ -323,34 +323,36 @@ def upload_file(student_id, file_name, file=None, text_content=None):
                 f.write(file.getvalue())
             else:
                 f.write(text_content)
-        st.success(f"✅ File '{file_name}' {'uploaded' if file else 'created'} successfully!")
+        st.success(f"✅ File '{file_name}' {'uploaded' if file else 'created'} successfully in folder '{folder_name}'!")
         return True
     except Exception as e:
         st.error(f"⚠️ Error {'uploading' if file else 'creating'} file: {e}")
         return False
 
-# Fetch user's files (list files from directory)
-def get_user_files(student_id):
+# Fetch user's files
+def get_user_files(user_id):
     try:
+        folder_name = user_id
+        user_dir = Path(folder_name)
         files = []
-        for file_path in UPLOAD_DIR.glob(f"{student_id}_*"):
-            if file_path.is_file():
-                timestamp_str = file_path.stem.split('_')[1]
-                try:
-                    upload_date = datetime.strptime(timestamp_str, '%Y%m%d%H%M%S')
-                except ValueError:
-                    upload_date = datetime.fromtimestamp(file_path.stat().st_mtime)
-                files.append({
-                    'file_name': file_path.name,
-                    'file_path': str(file_path),
-                    'upload_date': upload_date
-                })
+        if user_dir.exists():
+            for file_path in user_dir.glob("*"):
+                if file_path.is_file():
+                    timestamp_str = file_path.stem.split('_')[0]
+                    try:
+                        upload_date = datetime.strptime(timestamp_str, '%Y%m%d%H%M%S')
+                    except ValueError:
+                        upload_date = datetime.fromtimestamp(file_path.stat().st_mtime)
+                    files.append({
+                        'file_name': file_path.name,
+                        'file_path': str(file_path),
+                        'upload_date': upload_date
+                    })
         return sorted(files, key=lambda x: x['upload_date'], reverse=True)
     except Exception as e:
-        st.error(f"⚠️ Error fetching files: {e}")
+        st.error(f"⚠️ Error fetching files from folder '{folder_name}': {e}")
         return []
 
-# Student authentication
 def authenticate_student(student_id, password, captcha):
     if st.session_state.locked and st.session_state.lockout_time:
         if datetime.now() < st.session_state.lockout_time + timedelta(minutes=5):
@@ -416,7 +418,6 @@ def authenticate_student(student_id, password, captcha):
             conn.close()
     return False
 
-# Admin/Teacher authentication
 def authenticate_admin_teacher(username, password, expected_role, captcha):
     if st.session_state.locked and st.session_state.lockout_time:
         if datetime.now() < st.session_state.lockout_time + timedelta(minutes=5):
@@ -485,7 +486,6 @@ def authenticate_admin_teacher(username, password, expected_role, captcha):
             conn.close()
     return False
 
-# Add new user
 def add_student(username, password, email, role, created_at, updated_at, student_id):
     if not username or not password or not email or not role:
         st.error("❌ Please enter all required fields (Username, Password, Email, Role).")
@@ -529,7 +529,6 @@ def add_student(username, password, email, role, created_at, updated_at, student
             conn.close()
     return False
 
-# Handle login type switch
 def switch_login_type(new_type):
     st.session_state.login_type = new_type
     st.session_state.login_attempts = 0
@@ -558,6 +557,9 @@ def student_dashboard():
 def file_storage():
     st.markdown(f"<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>File Storage</h2>", unsafe_allow_html=True)
     st.info("Upload a text/image file or create a text file below:")
+    
+    # Determine user_id based on role
+    user_id = st.session_state.user['student_id'] if st.session_state.role == 'student' else st.session_state.user['username']
     
     # File Upload Form
     with st.form("file_upload_form", clear_on_submit=True):
@@ -601,25 +603,26 @@ def file_storage():
             if not file_name:
                 st.error("❌ Please provide a file name.")
             else:
-                student_id = st.session_state.user['student_id']
-                if upload_file(student_id, file_name, file=file, text_content=text_content):
+                if upload_file(user_id, file_name, file=file, text_content=text_content):
                     st.rerun()
     
     # File List with Preview
     st.markdown("<h3 style='color: #003087; font-size: 16px; font-weight: 600; margin-top: 1rem;'>Your Files</h3>", unsafe_allow_html=True)
-    files = get_user_files(st.session_state.user['student_id'])
+    files = get_user_files(user_id)
     if files:
         for file in files:
             file_path = Path(file['file_path'])
             file_ext = file_path.suffix.lower()
             file_size = file_path.stat().st_size / 1024  # Size in KB
+            # Display original file name (after timestamp)
+            display_name = '_'.join(file['file_name'].split('_')[1:])
             st.markdown(
-                f"<div class='uploaded-file'>{file['file_name']} (Uploaded: {file['upload_date']} | Size: {file_size:.2f} KB)</div>",
+                f"<div class='uploaded-file'>{display_name} (Uploaded: {file['upload_date']} | Size: {file_size:.2f} KB)</div>",
                 unsafe_allow_html=True
             )
             
             # Preview for Text and Image Files
-            with st.expander(f"Preview {file['file_name']}"):
+            with st.expander(f"Preview {display_name}"):
                 if file_ext == ".txt":
                     try:
                         with open(file_path, "r", encoding="utf-8") as f:
@@ -630,19 +633,19 @@ def file_storage():
                             content = f.read()
                         st.text(content)
                 elif file_ext in [".jpg", ".png"]:
-                    st.image(file_path, caption=file['file_name'], use_column_width=True)
+                    st.image(file_path, caption=display_name, use_column_width=True)
             
             # Delete Button
             if st.button("Delete", key=f"delete_{file['file_name']}"):
                 try:
                     file_path.unlink()
-                    st.success(f"✅ File '{file['file_name']}' deleted successfully!")
+                    st.success(f"✅ File '{display_name}' deleted successfully!")
                     st.rerun()
                 except Exception as e:
                     st.error(f"⚠️ Error deleting file: {e}")
     else:
         st.markdown("<div class='uploaded-file'>No files uploaded yet.</div>", unsafe_allow_html=True)
-        
+
 def admin_dashboard():
     st.markdown(f"<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>Admin Dashboard</h2>", unsafe_allow_html=True)
     st.success(f"Welcome, {st.session_state.user['username']}!")
@@ -687,6 +690,13 @@ def admin_dashboard():
                 key="new_student_id",
                 label_visibility="collapsed"
             )
+            st.markdown("<span class='input-label'>Name (Optional)</span>", unsafe_allow_html=True)
+            name = st.text_input(
+                "Name",
+                placeholder="Enter full name (e.g., John Doe) or leave blank",
+                key="new_student_name",
+                label_visibility="collapsed"
+            )
             st.markdown("<span class='input-label'>Created At (Optional)</span>", unsafe_allow_html=True)
             created_at = st.date_input(
                 "Created At",
@@ -715,6 +725,7 @@ def admin_dashboard():
         st.markdown("""
         - **User Management**: Add or update user accounts.
         - **System Settings**: Configure portal settings.
+        - **File Storage**: Upload or create text files.
         """)
 
 def teacher_dashboard():
@@ -726,9 +737,9 @@ def teacher_dashboard():
     - **Course Management**: View and manage your courses.
     - **Student Grades**: Enter or update student grades.
     - **Class Schedule**: View your teaching schedule.
+    - **File Storage**: Upload or create text files.
     """)
 
-# Sidebar for logged-in users
 def render_sidebar():
     with st.sidebar:
         st.image("logo.jpg", width=40)
@@ -770,6 +781,10 @@ def render_sidebar():
                 st.session_state.show_add_student = False
                 st.session_state.current_page = 'user_management'
                 st.rerun()
+            if st.button("File Storage", key="admin_file_storage"):
+                st.session_state.show_add_student = False
+                st.session_state.current_page = 'file_storage'
+                st.rerun()
             if st.button("Logout", key="admin_logout", type="secondary"):
                 confirm_logout()
         elif st.session_state.role == 'teacher':
@@ -787,10 +802,12 @@ def render_sidebar():
             if st.button("Class Schedule", key="teacher_schedule"):
                 st.session_state.current_page = 'teacher_schedule'
                 st.rerun()
+            if st.button("File Storage", key="teacher_file_storage"):
+                st.session_state.current_page = 'file_storage'
+                st.rerun()
             if st.button("Logout", key="teacher_logout", type="secondary"):
                 confirm_logout()
 
-# Logout confirmation
 def confirm_logout():
     if st.session_state.get('logged_in'):
         st.session_state.logged_in = False
@@ -846,6 +863,8 @@ with st.container():
                 elif st.session_state.current_page == 'user_management':
                     st.markdown("<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>User Management</h2>", unsafe_allow_html=True)
                     st.info("User management functionality coming soon!")
+                elif st.session_state.current_page == 'file_storage':
+                    file_storage()
                 else:
                     admin_dashboard()
             elif st.session_state.role == 'teacher':
@@ -860,6 +879,8 @@ with st.container():
                 elif st.session_state.current_page == 'teacher_schedule':
                     st.markdown("<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>Class Schedule</h2>", unsafe_allow_html=True)
                     st.info("Class schedule functionality coming soon!")
+                elif st.session_state.current_page == 'file_storage':
+                    file_storage()
                 else:
                     teacher_dashboard()
         else:
