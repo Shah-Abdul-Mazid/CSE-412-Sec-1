@@ -8,7 +8,7 @@ import os
 from pathlib import Path
 
 st.set_page_config(
-    page_title="East West University Portal",
+    page_title="Buff University Portal",
     page_icon="🎓",
     layout="centered",
     initial_sidebar_state="expanded"
@@ -828,7 +828,7 @@ with st.container():
     st.markdown(f"""
     <div class="header">
         <img src="data:image/jpeg;base64,{encoded_logo}" alt="EWU Logo" style='width: 30px; height: auto;'>
-        <h1 style='margin: 0; font-weight: 600; color: white;'>East West University</h1>
+        <h1 style='margin: 0; font-weight: 600; color: white;'>Buff University Poral</h1>
     </div>
     """, unsafe_allow_html=True)
 
