@@ -1064,7 +1064,7 @@ def main():
     st.markdown(f"""
     <div class="header" style="display:flex;align-items:center;gap:12px;">
         {'<img src="data:image/jpeg;base64,' + encoded_logo + '" alt="Logo" style="width:30px;height:auto;border-radius:4px;">' if encoded_logo else ''}
-        <h1 style="margin:0;font-weight:600;color:white;">Bangladesh University Management System</h1>
+        <h1 style="margin:0;font-weight:600;color:white;">Bangladesh Gen Z University Management System</h1>
     </div>
     """, unsafe_allow_html=True)
 
