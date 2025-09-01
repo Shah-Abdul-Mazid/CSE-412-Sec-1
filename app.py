@@ -2,21 +2,29 @@ import streamlit as st
 import pymysql
 from pymysql.err import OperationalError
 import random
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 import base64
-import os
 from pathlib import Path
 
+# ============================
+# Streamlit page config
+# ============================
 st.set_page_config(
-    page_title="Buff University Portal",
+    page_title="Bangladesh Gen Z University Management System",
     page_icon="🎓",
     layout="centered",
     initial_sidebar_state="expanded"
 )
 
+# ============================
+# CSS & Branding
+# ============================
 def load_css():
-    with open("logo.jpg", "rb") as image_file:
-        encoded_logo = base64.b64encode(image_file.read()).decode()
+    try:
+        with open("logo.jpg", "rb") as image_file:
+            encoded_logo = base64.b64encode(image_file.read()).decode()
+    except FileNotFoundError:
+        encoded_logo = ""  # Fallback if logo is missing
     st.markdown(f"""
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@500&display=swap');
@@ -44,10 +52,6 @@ def load_css():
             gap: 0.8rem;
             box-shadow: 0 2px 5px rgba(0,0,0,0.2);
         }}
-        .header img {{
-            width: 30px;
-            height: auto;
-        }}
         .header h1 {{
             margin: 0;
             font-size: 3rem;
@@ -56,9 +60,9 @@ def load_css():
             text-shadow: 1px 1px 2px rgba(0,0,0,0.3);
         }}
         .content {{
-            margin: 60px auto 60px auto;
+            margin: 100px auto 60px auto;
             padding: 1rem;
-            max-width: 380px;
+            max-width: 420px;
             width: 90%;
         }}
         .footer {{
@@ -125,13 +129,6 @@ def load_css():
             gap: 1.2rem;
             margin-bottom: 0.5rem;
         }}
-        .stRadio > div > label > div {{
-            font-size: 19px;
-            color: #ffffff;
-        }}
-        .stRadio > div > label > input[type=radio] {{
-            accent-color: #04AA6D;
-        }}
         .stFormSubmitButton button {{
             background-color: #04AA6D;
             color: #ffffff;
@@ -148,34 +145,11 @@ def load_css():
             opacity: 0.8;
             transform: translateY(-2px);
         }}
-        .secondary-btn {{
-            background: #6b7280;
-            color: #ffffff;
-            padding: 8px;
-            border-radius: 6px;
-            font-size: 19px;
-            font-weight: 500;
-            border: none;
-            width: 100%;
-            cursor: pointer;
-            transition: background 0.3s ease, transform 0.2s ease;
-        }}
-        .secondary-btn:hover {{
-            background: #4b5563;
-            transform: translateY(-2px);
-        }}
         .captcha-hint {{
             font-size: 19px;
             color: #ffffff;
             margin: 0.5rem 0;
             text-align: center;
-        }}
-        .instruction {{
-            font-size: 19px;
-            color: #ffffff;
-            margin-bottom: 0.5rem;
-            line-height: 1.4;
-            text-align: left;
         }}
         .stAlert > div {{
             background: none;
@@ -184,67 +158,14 @@ def load_css():
             font-size: 19px;
             color: #ffffff;
         }}
-        .sidebar .stButton > button {{
-            width: 100%;
-            text-align: left;
-            padding: 8px;
-            margin-bottom: 5px;
-            border-radius: 6px;
-            font-size: 19px;
-            background: #f0f4f8;
-            border: 1px solid #d1d5db;
-            transition: background 0.3s ease;
-        }}
-        .sidebar .stButton > button:hover {{
-            background: #e0e7ff;
-        }}
-        .button-row {{
-            display: flex;
-            gap: 0.5rem;
-            margin-top: 0.5rem;
-        }}
-        .uploaded-file {{
-            font-size: 19px;
-            color: #ffffff;
-            margin: 0.5rem 0;
-        }}
-        @media screen and (max-width: 600px) {{
-            .header h1 {{
-                font-size: 2rem;
-            }}
-            .header img {{
-                width: 25px;
-            }}
-            .footer, .footer a {{
-                font-size: 0.7rem;
-            }}
-            .content {{
-                margin: 50px auto 50px auto;
-                padding: 0.8rem;
-            }}
-            .title {{
-                font-size: 1.4rem;
-            }}
-            .input-label, .stTextInput > div > div > input, .stTextInput > div > div > input::placeholder, 
-            .stTextArea > div > div > textarea, .stTextArea > div > div > textarea::placeholder,
-            .stRadio > div > label > div, .stFormSubmitButton button, .captcha-hint, .instruction, .secondary-btn, .uploaded-file {{
-                font-size: 16px;
-            }}
-        }}
-        @media screen and (max-width: 300px) {{
-            .button-row {{
-                flex-direction: column;
-            }}
-            .secondary-btn {{
-                width: 100%;
-            }}
-        }}
     </style>
     """, unsafe_allow_html=True)
 
 load_css()
 
-# Initialize session state
+# ============================
+# Session State Initialization
+# ============================
 if 'login_attempts' not in st.session_state:
     st.session_state.login_attempts = 0
 if 'locked' not in st.session_state:
@@ -254,7 +175,7 @@ if 'lockout_time' not in st.session_state:
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
 if 'user' not in st.session_state:
-    st.session_state.user = None
+    st.session_state.user = None  # {'id', 'username' or 'student_id', 'role'}
 if 'role' not in st.session_state:
     st.session_state.role = None
 if 'login_type' not in st.session_state:
@@ -264,12 +185,14 @@ if 'captcha_answer' not in st.session_state:
     num2 = random.randint(1, 10)
     st.session_state.captcha_answer = num1 + num2
     st.session_state.captcha_question = f"{num1} + {num2} = ?"
-if 'show_add_student' not in st.session_state:
-    st.session_state.show_add_student = False
+if 'show_add_user' not in st.session_state:
+    st.session_state.show_add_user = False
 if 'current_page' not in st.session_state:
     st.session_state.current_page = None
 
-# Database connection
+# ============================
+# Database connection & helpers
+# ============================
 def get_db_connection():
     try:
         return pymysql.connect(
@@ -277,7 +200,7 @@ def get_db_connection():
             port=9000,
             user='root',
             password='root',
-            database='university_management_system',
+            database='university_management_system2',
             charset='utf8mb4',
             cursorclass=pymysql.cursors.DictCursor
         )
@@ -285,22 +208,42 @@ def get_db_connection():
         st.error(f"⚠️ Database connection failed: {e}")
         return None
 
-# File upload/create function
-def upload_file(user_id, file_name, file=None, text_content=None):
+def db_execute(query, params=None, fetchone=False, fetchall=False, commit=False):
+    conn = get_db_connection()
+    if not conn:
+        return None
+    try:
+        with conn.cursor() as cur:
+            cur.execute(query, params or ())
+            if commit:
+                conn.commit()
+            if fetchone:
+                return cur.fetchone()
+            if fetchall:
+                return cur.fetchall()
+    except Exception as e:
+        st.error(f"⚠️ Database error: {e}")
+        return None
+    finally:
+        conn.close()
+    return None
+
+# ============================
+# File storage utilities (local demo)
+# ============================
+def upload_file(user_key, file_name, file=None, text_content=None):
     if not file_name:
         st.error("❌ Please provide a file name.")
         return False
 
     if file:
         allowed_types = ['text/plain', 'image/jpeg', 'image/png']
-        if file.type not in allowed_types:
+        if getattr(file, 'type', None) not in allowed_types:
             st.error("❌ Only text (.txt) and image (.jpg, .png) files are allowed.")
             return False
-
-        if file.size > 5 * 1024 * 1024:  # 5MB limit
+        if getattr(file, 'size', 0) > 5 * 1024 * 1024:  # 5MB
             st.error("❌ File size exceeds 5MB limit.")
             return False
-
         file_extension = file.name.split('.')[-1].lower()
     elif text_content is not None:
         file_extension = 'txt'
@@ -308,32 +251,27 @@ def upload_file(user_id, file_name, file=None, text_content=None):
         st.error("❌ Please provide a file or text content.")
         return False
 
-    # Use student_id for students, username for admins/teachers
-    folder_name = user_id
-    user_dir = Path(folder_name)
+    user_dir = Path(str(user_key))
     user_dir.mkdir(exist_ok=True)
 
-    # Use original file name with timestamp to avoid conflicts
     unique_filename = f"{datetime.now().strftime('%Y%m%d%H%M%S')}_{file_name}.{file_extension}"
     file_path = user_dir / unique_filename
 
     try:
-        with open(file_path, "wb" if file else "w") as f:
+        with open(file_path, "wb" if file else "w", encoding=None if file else "utf-8") as f:
             if file:
                 f.write(file.getvalue())
             else:
                 f.write(text_content)
-        st.success(f"✅ File '{file_name}' {'uploaded' if file else 'created'} successfully in folder '{folder_name}'!")
+        st.success(f"✅ File '{file_name}' {'uploaded' if file else 'created'} successfully!")
         return True
     except Exception as e:
         st.error(f"⚠️ Error {'uploading' if file else 'creating'} file: {e}")
         return False
 
-# Fetch user's files
-def get_user_files(user_id):
+def get_user_files(user_key):
     try:
-        folder_name = user_id
-        user_dir = Path(folder_name)
+        user_dir = Path(str(user_key))
         files = []
         if user_dir.exists():
             for file_path in user_dir.glob("*"):
@@ -350,293 +288,526 @@ def get_user_files(user_id):
                     })
         return sorted(files, key=lambda x: x['upload_date'], reverse=True)
     except Exception as e:
-        st.error(f"⚠️ Error fetching files from folder '{folder_name}': {e}")
+        st.error(f"⚠️ Error fetching files: {e}")
         return []
 
+# ============================
+# Authentication & User Admin
+# ============================
+def _captcha_ok(captcha):
+    try:
+        return int(captcha) == st.session_state.captcha_answer
+    except Exception:
+        return False
+
 def authenticate_student(student_id, password, captcha):
-    if st.session_state.locked and st.session_state.lockout_time:
-        if datetime.now() < st.session_state.lockout_time + timedelta(minutes=5):
-            st.error("🔒 Account locked. Try again in 5 minutes.")
-            return False
-        else:
-            st.session_state.locked = False
-            st.session_state.login_attempts = 0
-            st.session_state.lockout_time = None
-    
+    if st.session_state.locked and st.session_state.lockout_time and datetime.now() < st.session_state.lockout_time + timedelta(minutes=5):
+        st.error("🔒 Account locked. Try again in 5 minutes.")
+        return False
+
     if not student_id or not password:
         st.error("❌ Please enter both Student ID and password.")
         return False
-        
-    try:
-        if int(captcha) != st.session_state.captcha_answer:
-            st.error("❌ Incorrect CAPTCHA answer.")
-            return False
-    except ValueError:
-        st.error("❌ Enter a valid number for CAPTCHA.")
+
+    if not _captcha_ok(captcha):
+        st.error("❌ Incorrect CAPTCHA answer.")
         return False
 
-    conn = get_db_connection()
-    if conn:
-        try:
-            with conn.cursor() as cursor:
-                sql = "SELECT student_id, role, password FROM users WHERE student_id=%s AND role='student'"
-                cursor.execute(sql, (student_id,))
-                user = cursor.fetchone()
-                
-                if user:
-                    if password == user['password']:
-                        st.session_state.logged_in = True
-                        st.session_state.user = {'student_id': user['student_id'], 'role': user['role']}
-                        st.session_state.role = 'student'
-                        st.session_state.login_attempts = 0
-                        st.session_state.show_add_student = False
-                        st.session_state.current_page = 'student_dashboard'
-                        st.success(f"✅ Welcome, Student ID: {user['student_id']}!")
-                        st.rerun()
-                        return True
-                    else:
-                        st.session_state.login_attempts += 1
-                        if st.session_state.login_attempts >= 5:
-                            st.session_state.locked = True
-                            st.session_state.lockout_time = datetime.now()
-                            st.error("🔒 Too many failed attempts. Account locked for 5 minutes.")
-                        else:
-                            remaining = 5 - st.session_state.login_attempts
-                            st.error(f"❌ Invalid credentials. {remaining} attempt{'s' if remaining != 1 else ''} left.")
-                        return False
-                else:
-                    st.session_state.login_attempts += 1
-                    if st.session_state.login_attempts >= 5:
-                        st.session_state.locked = True
-                        st.session_state.lockout_time = datetime.now()
-                        st.error("🔒 Too many failed attempts. Account locked for 5 minutes.")
-                    else:
-                        remaining = 5 - st.session_state.login_attempts
-                        st.error(f"❌ Invalid credentials. {remaining} attempt{'s' if remaining != 1 else ''} left.")
-                    return False
-        finally:
-            conn.close()
-    return False
-
-def authenticate_admin_teacher(username, password, expected_role, captcha):
-    if st.session_state.locked and st.session_state.lockout_time:
-        if datetime.now() < st.session_state.lockout_time + timedelta(minutes=5):
-            st.error("🔒 Account locked. Try again in 5 minutes.")
-            return False
+    user = db_execute(
+        "SELECT student_id, role, password FROM users WHERE student_id=%s AND role='student'",
+        (student_id,), fetchone=True
+    )
+    if user and password == user['password']:
+        st.session_state.logged_in = True
+        st.session_state.user = {'student_id': user['student_id'], 'role': user['role']}
+        st.session_state.role = 'student'
+        st.session_state.login_attempts = 0
+        st.session_state.current_page = 'student_dashboard'
+        st.success(f"✅ Welcome, Student ID: {user['student_id']}!")
+        st.rerun()
+        return True
+    else:
+        st.session_state.login_attempts += 1
+        if st.session_state.login_attempts >= 5:
+            st.session_state.locked = True
+            st.session_state.lockout_time = datetime.now()
+            st.error("🔒 Too many failed attempts. Account locked for 5 minutes.")
         else:
-            st.session_state.locked = False
-            st.session_state.login_attempts = 0
-            st.session_state.lockout_time = None
-    
+            remaining = 5 - st.session_state.login_attempts
+            st.error(f"❌ Invalid credentials. {remaining} attempt{'s' if remaining != 1 else ''} left.")
+        return False
+
+def authenticate_admin_faculty(username, password, expected_role, captcha):
+    if st.session_state.locked and st.session_state.lockout_time and datetime.now() < st.session_state.lockout_time + timedelta(minutes=5):
+        st.error("🔒 Account locked. Try again in 5 minutes.")
+        return False
+
     if not username or not password:
         st.error("❌ Please enter both username and password.")
         return False
-        
-    try:
-        if int(captcha) != st.session_state.captcha_answer:
-            st.error("❌ Incorrect CAPTCHA answer.")
-            return False
-    except ValueError:
-        st.error("❌ Enter a valid number for CAPTCHA.")
+
+    if not _captcha_ok(captcha):
+        st.error("❌ Incorrect CAPTCHA answer.")
         return False
 
-    conn = get_db_connection()
-    if conn:
-        try:
-            with conn.cursor() as cursor:
-                query = "SELECT username, role, password FROM users WHERE username=%s"
-                cursor.execute(query, (username,))
-                user = cursor.fetchone()
-                if user:
-                    if password == user['password']:
-                        if user['role'] == expected_role:
-                            st.session_state.logged_in = True
-                            st.session_state.user = {'username': user['username'], 'role': user['role']}
-                            st.session_state.role = user['role']
-                            st.session_state.login_attempts = 0
-                            st.session_state.show_add_student = False
-                            st.session_state.current_page = f"{user['role']}_dashboard"
-                            st.success(f"✅ Welcome, {user['username']} ({user['role'].title()})!")
-                            st.rerun()
-                            return True
-                        else:
-                            st.error(f"❌ This login is for {expected_role.title()}s only.")
-                            return False
-                    else:
-                        st.session_state.login_attempts += 1
-                        if st.session_state.login_attempts >= 5:
-                            st.session_state.locked = True
-                            st.session_state.lockout_time = datetime.now()
-                            st.error("🔒 Too many failed attempts. Account locked for 5 minutes.")
-                        else:
-                            remaining = 5 - st.session_state.login_attempts
-                            st.error(f"❌ Invalid credentials. {remaining} attempt{'s' if remaining != 1 else ''} left.")
-                        return False
-                else:
-                    st.session_state.login_attempts += 1
-                    if st.session_state.login_attempts >= 5:
-                        st.session_state.locked = True
-                        st.session_state.lockout_time = datetime.now()
-                        st.error("🔒 Too many failed attempts. Account locked for 5 minutes.")
-                    else:
-                        remaining = 5 - st.session_state.login_attempts
-                        st.error(f"❌ Invalid credentials. {remaining} attempt{'s' if remaining != 1 else ''} left.")
-                    return False
-        finally:
-            conn.close()
-    return False
+    user = db_execute(
+        "SELECT  username, role, password FROM users WHERE username=%s",
+        (username,), fetchone=True
+    )
+    if user and password == user['password']:
+        if user['role'] == expected_role:
+            st.session_state.logged_in = True
+            st.session_state.user = {'username': user['username'], 'role': user['role']}
+            st.session_state.role = user['role']
+            st.session_state.login_attempts = 0
+            st.session_state.current_page = f"{user['role']}_dashboard"
+            st.success(f"✅ Welcome, {user['username']} ({user['role'].title()})!")
+            st.rerun()
+            return True
+        else:
+            st.error(f"❌ This login is for {expected_role.title()}s only.")
+            return False
+    else:
+        st.session_state.login_attempts += 1
+        if st.session_state.login_attempts >= 5:
+            st.session_state.locked = True
+            st.session_state.lockout_time = datetime.now()
+            st.error("🔒 Too many failed attempts. Account locked for 5 minutes.")
+        else:
+            remaining = 5 - st.session_state.login_attempts
+            st.error(f"❌ Invalid credentials. {remaining} attempt{'s' if remaining != 1 else ''} left.")
+        return False
 
-def add_student(username, password, email, role, created_at, updated_at, student_id):
+def add_user(username, password, email, role, created_at, updated_at, student_id):
     if not username or not password or not email or not role:
         st.error("❌ Please enter all required fields (Username, Password, Email, Role).")
         return False
 
-    conn = get_db_connection()
-    if conn:
-        try:
-            with conn.cursor() as cursor:
-                if student_id:
-                    sql = "SELECT username, student_id FROM users WHERE username=%s OR student_id=%s"
-                    cursor.execute(sql, (username, student_id))
-                else:
-                    sql = "SELECT username FROM users WHERE username=%s"
-                    cursor.execute(sql, (username,))
-                existing = cursor.fetchone()
-                if existing:
-                    if existing['username'] == username:
-                        st.error("❌ Username already exists.")
-                    elif student_id and existing['student_id'] == student_id:
-                        st.error("❌ Student ID already exists.")
-                    return False
-                
-                sql = "INSERT INTO users (username, password, email, role, created_at, updated_at, student_id) VALUES (%s, %s, %s, %s, %s, %s, %s)"
-                cursor.execute(sql, (
-                    username,
-                    password,
-                    email,
-                    role,
-                    created_at if created_at else None,
-                    updated_at if updated_at else None,
-                    student_id if student_id else None
-                ))
-                conn.commit()
-                st.success(f"✅ User {username} (Role: {role.title()}) added successfully!")
-                return True
-        except OperationalError as e:
-            st.error(f"⚠️ Error adding user: {e}")
+    # Uniqueness checks (simpler & robust)
+    existing_username = db_execute("SELECT sl FROM users WHERE username=%s", (username,), fetchone=True)
+    if existing_username:
+        st.error("❌ Username already exists.")
+        return False
+    if role == 'student' and student_id:
+        existing_sid = db_execute("SELECT sl FROM users WHERE student_id=%s", (student_id,), fetchone=True)
+        if existing_sid:
+            st.error("❌ Student ID already exists.")
             return False
-        finally:
-            conn.close()
-    return False
+
+    db_execute(
+        """
+        INSERT INTO users (username, password, email, role, created_at, updated_at, student_id)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        """,
+        (username, password, email, role, created_at, updated_at, student_id if role == 'student' else None),
+        commit=True
+    )
+    st.success(f"✅ User {username} (Role: {role.title()}) added successfully!")
+    return True
 
 def switch_login_type(new_type):
     st.session_state.login_type = new_type
     st.session_state.login_attempts = 0
     st.session_state.locked = False
     st.session_state.lockout_time = None
-    st.session_state.show_add_student = False
+    st.session_state.show_add_user = False
     st.session_state.current_page = None
-    num1 = random.randint(1, 10)
-    num2 = random.randint(1, 10)
-    st.session_state.captcha_answer = num1 + num2
-    st.session_state.captcha_question = f"{num1} + {num2} = ?"
+    a, b = random.randint(1, 10), random.randint(1, 10)
+    st.session_state.captcha_answer = a + b
+    st.session_state.captcha_question = f"{a} + {b} = ?"
 
+# ============================
+# Student Pages
+# ============================
 def student_dashboard():
-    st.markdown(f"<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>Student Dashboard</h2>", unsafe_allow_html=True)
-    st.success(f"Welcome, Student ID: {st.session_state.user['student_id']}!")
-    st.write("### Your Student Portal")
-    st.info("Access your academic information below:")
-    st.markdown("""
-    - **Course Advising**: View and manage your course registrations.
-    - **Class Schedule**: Check your weekly class schedule.
-    - **Grades**: View your grades and academic performance.
-    - **Drop Semester**: Request to drop the current semester.
-    - **File Storage**: Upload or create text files.
-    """)
+    sid = st.session_state.user.get('student_id', '—')
+    st.markdown("<h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>Student Dashboard</h2>", unsafe_allow_html=True)
+    st.success(f"Welcome, Student ID: {sid}!")
+    st.info("Use the sidebar to navigate: Advising, Enrollment, Schedule, Grades, Files.")
 
+def page_advising_and_enrollment():
+    st.subheader("Schedule Meeting")
+
+    # Default date and time for meeting
+    default_datetime = datetime.now() + timedelta(days=1)
+    default_date = default_datetime.date()
+    default_time = default_datetime.time()
+
+    # Date input widget
+    meeting_date = st.date_input("Meeting Date", value=default_date)
+
+    # Time input widget
+    meeting_time = st.time_input("Meeting Time", value=default_time)
+
+    # Combine selected date and time into a single datetime object
+    meeting_dt = datetime.combine(meeting_date, meeting_time)
+    st.write("Selected meeting datetime:", meeting_dt)
+
+    # --- Courses search and enrollment section ---
+    st.subheader("Courses & Enrollment")
+    q = st.text_input("Search courses by name:", placeholder="e.g., Introduction to Programming")
+    cond, params = "", []
+    if q:
+        cond = "WHERE code LIKE %s"
+        params = [f"%{q}%"]
+
+    # Fetch courses with credit, description filtered by search query
+    courses = db_execute(
+        f"SELECT code, title, description, credit as credit FROM courses {cond} ORDER BY title LIMIT 200",
+        params,
+        fetchall=True
+    ) or []
+
+    # Get current logged in student's ID
+    student_id = st.session_state.user['student_id']
+
+    # Fetch this student's enrolled courses to know which are already enrolled
+    my = db_execute(
+        "SELECT course_code FROM enrollments WHERE student_id=%s",
+        (student_id,),
+        fetchall=True
+    ) or []
+    my_set = {m['course_code'] for m in my}
+
+    if not courses:
+        st.info("No courses found.")
+    else:
+        for c in courses:
+            st.markdown(f"**{c['title']}** ({float(c['credit']):.1f} cr) {c.get('description') or ''}")
+            col1, col2 = st.columns(2)
+            with col1:
+                # Enrollment toggle buttons
+                if c['code'] in my_set:
+                    if st.button(f"Drop {c['code']}", key=f"drop_{c['code']}"):
+                        db_execute(
+                            "DELETE FROM enrollments WHERE student_id=%s AND course_code=%s",
+                            (student_id, c['code']),
+                            commit=True
+                        )
+                        st.success("Dropped.")
+                        st.rerun()
+                else:
+                    if st.button(f"Enroll in {c['code']}", key=f"enroll_{c['code']}"):
+                        db_execute(
+                            "INSERT INTO enrollments (student_id, course_code) VALUES (%s, %s)",
+                            (student_id, c['code']),
+                            commit=True
+                        )
+                        st.success("Enrolled.")
+                        st.rerun()
+            with col2:
+                # Show course schedule summary if available
+                sched = db_execute(
+                    "SELECT day, start_time, end_time FROM schedules WHERE course_code=%s "
+                    "ORDER BY FIELD(day,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time",
+                    (c['code'],),
+                    fetchall=True
+                ) or []
+                if sched:
+                    st.caption("; ".join([f"{r['day']} {r['start_time']}–{r['end_time']}" for r in sched]))
+                else:
+                    st.caption("No schedule set")
+
+def page_class_schedule():
+    st.markdown("<h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>Class Schedule</h2>", unsafe_allow_html=True)
+    student_id = st.session_state.user['student_id']
+
+    rows = db_execute(
+        """
+        SELECT c.title, c.credit, s.day, s.start_time, s.end_time
+        FROM enrollments e
+        JOIN courses c ON c.code = e.course_code
+        LEFT JOIN schedules s ON s.course_code = c.code
+        WHERE e.student_id = %s
+        ORDER BY FIELD(s.day,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), s.start_time
+        """,
+        (student_id,), fetchall=True
+    ) or []
+
+    if not rows:
+        st.info("No classes scheduled. Enroll in some courses first.")
+        return
+
+    current_day = None
+    for r in rows:
+        if r['day'] != current_day:
+            current_day = r['day']
+            st.subheader(current_day)
+        st.markdown(f"- **{r['title']}** ({float(r['credit']):.1f} cr) — {r['start_time']}–{r['end_time']}")
+
+def page_grades():
+    st.markdown("<h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>Grades</h2>", unsafe_allow_html=True)
+    student_id = st.session_state.user['student_id']
+
+    rows = db_execute(
+        """
+        SELECT c.code,c.credit,g.grade
+        FROM grades g
+        JOIN courses c ON c.code=g.course_code
+        WHERE g.student_id=%s
+        ORDER BY c.title
+        """,
+        (student_id,), fetchall=True
+    ) or []
+
+    if not rows:
+        st.info("No grades yet.")
+        return
+
+    total_weight = 0.0
+    total_credit = 0.0
+    for r in rows:
+        st.markdown(f"- **{r['code']}** ({float(r['credit']):.1f} cr): Grade **{r['grade'] if r['grade'] is not None else '—'}**")
+        if r['grade'] is not None and r['credit']:
+            total_weight += float(r['grade']) * float(r['credit'])
+            total_credit += float(r['credit'])
+
+    if total_credit > 0:
+        st.markdown(f"### Weighted GPA (numeric scale): **{total_weight/total_credit:.2f}**")
+
+# ============================
+# Admin Pages
+# ============================
+def admin_dashboard():
+    st.markdown("<h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>Admin Dashboard</h2>", unsafe_allow_html=True)
+    st.success(f"Welcome, {st.session_state.user['username']}!")
+    st.write("### Admin Control Panel")
+    if st.session_state.show_add_user:
+        with st.form("add_user_form", clear_on_submit=True):
+            username = st.text_input("Username", placeholder="Enter username", key="new_username")
+            password = st.text_input("Password", type="password", placeholder="Enter password", key="new_password")
+            email = st.text_input("Email", placeholder="Enter email (e.g., user@example.edu)", key="new_email")
+            role = st.selectbox("Role", options=['student', 'faculty', 'admin'], index=0, key="new_role")
+            student_id = st.text_input("Student ID (for students)", placeholder="e.g., 2021-2-60-046", key="new_student_id")
+
+            # Optional timestamps
+            use_custom_times = st.checkbox("Set custom Created/Updated dates (optional)", value=False)
+            created_at = None
+            updated_at = None
+            if use_custom_times:
+                created_at = st.date_input("Created At", value=date.today(), key="new_created_at").strftime('%Y-%m-%d %H:%M:%S')
+                updated_at = st.date_input("Updated At", value=date.today(), key="new_updated_at").strftime('%Y-%m-%d %H:%M:%S')
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.form_submit_button("Add User", type="primary", use_container_width=True):
+                    if add_user(username, password, email, role, created_at, updated_at, student_id if role=='student' else None):
+                        st.session_state.show_add_user = False
+                        st.rerun()
+            with col2:
+                if st.form_submit_button("Cancel", type="secondary", use_container_width=True):
+                    st.session_state.show_add_user = False
+                    st.rerun()
+    else:
+        st.info("Manage users, courses, and system settings from here. Use the sidebar for User Management and Files.")
+
+def page_user_management():
+    st.markdown("<h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>User Management</h2>", unsafe_allow_html=True)
+
+    q = st.text_input("Search users (username/email/student_id):")
+    cond, params = "", []
+    if q:
+        cond = "WHERE (username LIKE %s OR email LIKE %s OR student_id LIKE %s)"
+        like = f"%{q}%"
+        params = [like, like, like]
+
+    users = db_execute(f"""
+        SELECT  username, role, email, student_id, created_at
+        FROM users {cond}
+        ORDER BY role, username
+        LIMIT 200
+    """, params, fetchall=True) or []
+
+    if not users:
+        st.info("No users found.")
+    else:
+        for u in users:
+            created = u['created_at'].strftime('%Y-%m-%d') if u['created_at'] else '—'
+            st.markdown(f"- **{u['username']}** | {u['role'].title()} | {u['email']} | Student ID: {u['student_id'] or '—'} | Created: {created}")
+
+# ============================
+# Faculty Pages
+# ============================
+def faculty_dashboard():
+    st.markdown("<h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>Faculty Dashboard</h2>", unsafe_allow_html=True)
+    st.success(f"Welcome, {st.session_state.user['username']}!")
+    st.info("Use the sidebar: Course Management, Grades, Files.")
+
+def page_faculty_course_management():
+    st.markdown("<h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>Course Management</h2>", unsafe_allow_html=True)
+    username = st.session_state.user['username']
+
+    # Fetch courses assigned to the faculty member
+    courses = db_execute(
+        """
+        SELECT c.code, c.title, c.credit as credit
+        FROM courses c
+        JOIN faculty_courses fc ON c.code = fc.course_code
+        WHERE fc.username = %s
+        ORDER BY c.title
+        """,
+        (username,), fetchall=True
+    ) or []
+
+    if not courses:
+        st.info("No assigned courses.")
+        return
+
+    for c in courses:
+        st.markdown(f"**{c['title']}** ({float(c['credit']):.1f} cr)")
+        with st.expander("Roster"):
+            # Fetch the roster of students enrolled in this course
+            roster = db_execute(
+                """
+                SELECT u.student_id, u.username
+                FROM enrollments e
+                JOIN users u ON u.student_id = e.student_id
+                WHERE e.course_code = %s
+                ORDER BY u.student_id
+                """,
+                (c['code'],), fetchall=True
+            ) or []
+            if not roster:
+                st.caption("No students enrolled.")
+            else:
+                for r in roster:
+                    st.markdown(f"- {r['student_id'] or r['username']}")
+        # Quick schedule view
+        sched = db_execute(
+            """
+            SELECT day, start_time, end_time
+            FROM schedules
+            WHERE course_code = %s
+            ORDER BY FIELD(day, 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'), start_time
+            """,
+            (c['code'],), fetchall=True
+        ) or []
+        if sched:
+            st.caption("; ".join([f"{s['day']} {s['start_time']}–{s['end_time']}" for s in sched]))
+        st.markdown("---")
+
+def page_faculty_grades():
+    st.markdown("<h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>Enter Grades</h2>", unsafe_allow_html=True)
+    username = st.session_state.user['username']
+
+    # Fetch courses the faculty member teaches
+    courses = db_execute(
+        """
+        SELECT c.code
+        FROM courses c
+        JOIN faculty_courses fc ON c.code = fc.course_code
+        WHERE fc.username = %s
+        """,
+        (username,), fetchall=True
+    ) or []
+
+    if not courses:
+        st.info("No courses to grade.")
+        return
+
+    # Prepare options for selectbox - map code to code
+    options = {f["code"]: f["code"] for f in courses}
+    sel_label = st.selectbox("Select course:", list(options.keys()))
+    course_code = options[sel_label]
+
+    # Fetch enrolled students and their grades for the selected course
+    roster = db_execute(
+        """
+        SELECT u.student_id, u.username,
+               (SELECT grade FROM grades g WHERE g.student_id = u.student_id AND g.course_code = %s LIMIT 1) AS grade
+        FROM enrollments e
+        JOIN users u ON u.student_id = e.student_id
+        WHERE e.course_code = %s
+        ORDER BY u.student_id, u.username
+        """,
+        (course_code, course_code), fetchall=True
+    ) or []
+
+    if not roster:
+        st.info("No students enrolled.")
+        return
+
+    # Form to enter/update grades
+    with st.form("grade_entry"):
+        new_grades = {}
+        for r in roster:
+            col1, col2 = st.columns([3, 1])
+            with col1:
+                st.markdown(f"**{r['student_id'] or r['username']}**")
+            with col2:
+                g = st.number_input(
+                    f"Grade for {r['student_id']}",
+                    min_value=0.0, max_value=4.0, step=0.01,
+                    value=float(r['grade']) if r['grade'] is not None else 0.0,
+                    key=f"grade_{r['student_id']}"
+                )
+                new_grades[r['student_id']] = g
+        if st.form_submit_button("Save Grades", type="primary", use_container_width=True):
+            for uid2, grd in new_grades.items():
+                exists = db_execute(
+                    "SELECT student_id FROM grades WHERE student_id = %s AND course_code = %s",
+                    (uid2, course_code), fetchone=True
+                )
+                if exists:
+                    db_execute(
+                        "UPDATE grades SET grade = %s, updated_at = NOW() WHERE student_id = %s AND course_code = %s",
+                        (grd, uid2, course_code), commit=True
+                    )
+                else:
+                    db_execute(
+                        "INSERT INTO grades (student_id, course_code, grade) VALUES (%s, %s, %s)",
+                        (uid2, course_code, grd), commit=True
+                    )
+            st.success("✅ Grades saved.")
+            st.rerun()
+
+# ============================
+# Shared: File Storage UI
+# ============================
 def file_storage():
-    st.markdown(f"<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>File Storage</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>File Storage</h2>", unsafe_allow_html=True)
     st.info("Upload a text/image file or create a text file below:")
-    
-    # Determine user_id based on role
-    user_id = st.session_state.user['student_id'] if st.session_state.role == 'student' else st.session_state.user['username']
-    
-    # File Upload Form
-    with st.form("file_upload_form", clear_on_submit=True):
-        st.markdown("<span class='input-label'>Select Action</span>", unsafe_allow_html=True)
-        action = st.radio(
-            "Choose an action",
-            ("Upload File", "Create Text File"),
-            horizontal=True,
-            key="file_action_radio",
-            label_visibility="collapsed"
-        )
-        
-        st.markdown("<span class='input-label'>File Name</span>", unsafe_allow_html=True)
-        file_name = st.text_input(
-            "File Name",
-            placeholder="Enter file name (e.g., myfile.txt)",
-            key="file_name_input",
-            label_visibility="collapsed"
-        )
 
+    user_key = st.session_state.user.get('student_id') or st.session_state.user.get('username') or st.session_state.user.get('id')
+
+    with st.form("file_upload_form", clear_on_submit=True):
+        action = st.radio("Choose an action", ("Upload File", "Create Text File"), horizontal=True, key="file_action_radio")
+        file_name = st.text_input("File Name", placeholder="Enter file name (e.g., myfile)")
         file = None
         text_content = None
         if action == "Upload File":
-            st.markdown("<span class='input-label'>Select File</span>", unsafe_allow_html=True)
-            file = st.file_uploader(
-                "Choose a file",
-                type=['txt', 'jpg', 'png'],
-                key="file_uploader_input",
-                label_visibility="collapsed"
-            )
-        elif action == "Create Text File":
-            st.markdown("<span class='input-label'>Text Content</span>", unsafe_allow_html=True)
-            text_content = st.text_area(
-                "Enter text content",
-                placeholder="Type your text here...",
-                key="text_content_input",
-                label_visibility="collapsed"
-            )
-
+            file = st.file_uploader("Choose a file", type=['txt', 'jpg', 'png'])
+        else:
+            text_content = st.text_area("Enter text content", placeholder="Type your text here...")
         if st.form_submit_button("Submit", type="primary", use_container_width=True):
             if not file_name:
                 st.error("❌ Please provide a file name.")
             else:
-                if upload_file(user_id, file_name, file=file, text_content=text_content):
+                if upload_file(user_key, file_name, file=file, text_content=text_content):
                     st.rerun()
-    
-    # File List with Preview
-    st.markdown("<h3 style='color: #003087; font-size: 16px; font-weight: 600; margin-top: 1rem;'>Your Files</h3>", unsafe_allow_html=True)
-    files = get_user_files(user_id)
+
+    st.subheader("Your Files")
+    files = get_user_files(user_key)
     if files:
-        for file in files:
-            file_path = Path(file['file_path'])
+        for f in files:
+            file_path = Path(f['file_path'])
             file_ext = file_path.suffix.lower()
-            file_size = file_path.stat().st_size / 1024  # Size in KB
-            # Display original file name (after timestamp)
-            display_name = '_'.join(file['file_name'].split('_')[1:])
-            st.markdown(
-                f"<div class='uploaded-file'>{display_name} (Uploaded: {file['upload_date']} | Size: {file_size:.2f} KB)</div>",
-                unsafe_allow_html=True
-            )
-            
-            # Preview for Text and Image Files
+            file_size = file_path.stat().st_size / 1024  # KB
+            display_name = '_'.join(f['file_name'].split('_')[1:])
+            st.markdown(f"{display_name} (Uploaded: {f['upload_date']} | Size: {file_size:.2f} KB)")
             with st.expander(f"Preview {display_name}"):
                 if file_ext == ".txt":
                     try:
-                        with open(file_path, "r", encoding="utf-8") as f:
-                            content = f.read()
+                        with open(file_path, "r", encoding="utf-8") as fh:
+                            content = fh.read()
                         st.text(content)
                     except UnicodeDecodeError:
-                        with open(file_path, "r", encoding="latin1") as f:
-                            content = f.read()
+                        with open(file_path, "r", encoding="latin1") as fh:
+                            content = fh.read()
                         st.text(content)
                 elif file_ext in [".jpg", ".png"]:
                     st.image(file_path, caption=display_name, use_column_width=True)
-            
-            # Delete Button
-            if st.button("Delete", key=f"delete_{file['file_name']}"):
+            if st.button("Delete", key=f"delete_{f['file_name']}"):
                 try:
                     file_path.unlink()
                     st.success(f"✅ File '{display_name}' deleted successfully!")
@@ -644,102 +815,11 @@ def file_storage():
                 except Exception as e:
                     st.error(f"⚠️ Error deleting file: {e}")
     else:
-        st.markdown("<div class='uploaded-file'>No files uploaded yet.</div>", unsafe_allow_html=True)
+        st.caption("No files uploaded yet.")
 
-def admin_dashboard():
-    st.markdown(f"<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>Admin Dashboard</h2>", unsafe_allow_html=True)
-    st.success(f"Welcome, {st.session_state.user['username']}!")
-    st.write("### Admin Control Panel")
-    if st.session_state.show_add_student:
-        st.markdown("<h3 style='color: #003087; font-size: 16px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>Add New User</h3>", unsafe_allow_html=True)
-        with st.form("add_student_form", clear_on_submit=True):
-            st.markdown("<span class='input-label'>Username</span>", unsafe_allow_html=True)
-            username = st.text_input(
-                "Username",
-                placeholder="Enter username",
-                key="new_student_username",
-                label_visibility="collapsed"
-            )
-            st.markdown("<span class='input-label'>Password</span>", unsafe_allow_html=True)
-            password = st.text_input(
-                "Password",
-                type="password",
-                placeholder="Enter password",
-                key="new_student_password",
-                label_visibility="collapsed"
-            )
-            st.markdown("<span class='input-label'>Email</span>", unsafe_allow_html=True)
-            email = st.text_input(
-                "Email",
-                placeholder="Enter email (e.g., user@ewu.edu)",
-                key="new_student_email",
-                label_visibility="collapsed"
-            )
-            st.markdown("<span class='input-label'>Role</span>", unsafe_allow_html=True)
-            role = st.selectbox(
-                "Role",
-                options=['student', 'teacher', 'admin'],
-                index=0,
-                key="new_user_role",
-                label_visibility="collapsed"
-            )
-            st.markdown("<span class='input-label'>Student ID (Optional)</span>", unsafe_allow_html=True)
-            student_id = st.text_input(
-                "Student ID",
-                placeholder="Enter Student ID (e.g., 2021-2-60-046) or leave blank",
-                key="new_student_id",
-                label_visibility="collapsed"
-            )
-            st.markdown("<span class='input-label'>Name (Optional)</span>", unsafe_allow_html=True)
-            name = st.text_input(
-                "Name",
-                placeholder="Enter full name (e.g., John Doe) or leave blank",
-                key="new_student_name",
-                label_visibility="collapsed"
-            )
-            st.markdown("<span class='input-label'>Created At (Optional)</span>", unsafe_allow_html=True)
-            created_at = st.date_input(
-                "Created At",
-                value=None,
-                key="new_user_created_at",
-                label_visibility="collapsed"
-            )
-            st.markdown("<span class='input-label'>Updated At (Optional)</span>", unsafe_allow_html=True)
-            updated_at = st.date_input(
-                "Updated At",
-                value=None,
-                key="new_user_updated_at",
-                label_visibility="collapsed"
-            )
-            if st.form_submit_button("Add User", type="primary", use_container_width=True):
-                created_at_str = created_at.strftime('%Y-%m-%d %H:%M:%S') if created_at else None
-                updated_at_str = updated_at.strftime('%Y-%m-%d %H:%M:%S') if updated_at else None
-                if add_student(username, password, email, role, created_at_str, updated_at_str, student_id):
-                    st.session_state.show_add_student = False
-                    st.rerun()
-            if st.form_submit_button("Cancel", type="secondary", use_container_width=True):
-                st.session_state.show_add_student = False
-                st.rerun()
-    else:
-        st.info("Manage university operations below:")
-        st.markdown("""
-        - **User Management**: Add or update user accounts.
-        - **System Settings**: Configure portal settings.
-        - **File Storage**: Upload or create text files.
-        """)
-
-def teacher_dashboard():
-    st.markdown(f"<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>Teacher Dashboard</h2>", unsafe_allow_html=True)
-    st.success(f"Welcome, {st.session_state.user['username']}!")
-    st.write("### Teacher Portal")
-    st.info("Manage your teaching activities below:")
-    st.markdown("""
-    - **Course Management**: View and manage your courses.
-    - **Student Grades**: Enter or update student grades.
-    - **Class Schedule**: View your teaching schedule.
-    - **File Storage**: Upload or create text files.
-    """)
-
+# ============================
+# Sidebar (only after login)
+# ============================
 def render_sidebar():
     with st.sidebar:
         st.image("logo.jpg", width=40)
@@ -750,7 +830,7 @@ def render_sidebar():
                 st.session_state.current_page = 'student_dashboard'
                 st.rerun()
             if st.button("Course Advising", key="student_advising"):
-                st.session_state.current_page = 'course_advising'
+                st.session_state.current_page = 'advising_enrollment'
                 st.rerun()
             if st.button("Class Schedule", key="student_schedule"):
                 st.session_state.current_page = 'class_schedule'
@@ -759,7 +839,7 @@ def render_sidebar():
                 st.session_state.current_page = 'grades'
                 st.rerun()
             if st.button("Drop Semester", key="student_drop"):
-                st.session_state.current_page = 'drop_semester'
+                st.session_state.current_page = 'drop_semester'  # (no page implemented yet)
                 st.rerun()
             if st.button("File Storage", key="student_file_storage"):
                 st.session_state.current_page = 'file_storage'
@@ -770,42 +850,43 @@ def render_sidebar():
             st.markdown("<h2 style='color: #003087; font-size: 19px;'>Admin Portal</h2>", unsafe_allow_html=True)
             st.markdown(f"<p style='color: #374151; font-size: 19px;'>Hi, {st.session_state.user['username']}</p>", unsafe_allow_html=True)
             if st.button("Dashboard", key="admin_dashboard"):
-                st.session_state.show_add_student = False
+                st.session_state.show_add_user = False
                 st.session_state.current_page = 'admin_dashboard'
                 st.rerun()
             if st.button("Add User", key="admin_add_student"):
-                st.session_state.show_add_student = True
+                st.session_state.show_add_user = True
                 st.session_state.current_page = 'admin_dashboard'
                 st.rerun()
             if st.button("User Management", key="admin_users"):
-                st.session_state.show_add_student = False
+                st.session_state.show_add_user = False
                 st.session_state.current_page = 'user_management'
                 st.rerun()
             if st.button("File Storage", key="admin_file_storage"):
-                st.session_state.show_add_student = False
+                st.session_state.show_add_user = False
                 st.session_state.current_page = 'file_storage'
                 st.rerun()
             if st.button("Logout", key="admin_logout", type="secondary"):
                 confirm_logout()
-        elif st.session_state.role == 'teacher':
-            st.markdown("<h2 style='color: #003087; font-size: 19px;'>Teacher Portal</h2>", unsafe_allow_html=True)
+        elif st.session_state.role == 'faculty':
+            st.markdown("<h2 style='color: #003087; font-size: 19px;'>Faculty Portal</h2>", unsafe_allow_html=True)
             st.markdown(f"<p style='color: #374151; font-size: 19px;'>Hi, {st.session_state.user['username']}</p>", unsafe_allow_html=True)
-            if st.button("Dashboard", key="teacher_dashboard"):
-                st.session_state.current_page = 'teacher_dashboard'
+            if st.button("Dashboard", key="faculty_dashboard"):
+                st.session_state.current_page = 'faculty_dashboard'
                 st.rerun()
-            if st.button("Course Management", key="teacher_courses"):
+            if st.button("Course Management", key="faculty_courses"):
                 st.session_state.current_page = 'course_management'
                 st.rerun()
-            if st.button("Student Grades", key="teacher_grades"):
-                st.session_state.current_page = 'student_grades'
+            if st.button("Student Grades", key="faculty_grades_btn"):
+                st.session_state.current_page = 'faculty_grades'
                 st.rerun()
-            if st.button("Class Schedule", key="teacher_schedule"):
-                st.session_state.current_page = 'teacher_schedule'
+            if st.button("Class Schedule", key="faculty_schedule"):
+                # No dedicated page exists; route to course management for now
+                st.session_state.current_page = 'course_management'
                 st.rerun()
-            if st.button("File Storage", key="teacher_file_storage"):
+            if st.button("File Storage", key="faculty_file_storage"):
                 st.session_state.current_page = 'file_storage'
                 st.rerun()
-            if st.button("Logout", key="teacher_logout", type="secondary"):
+            if st.button("Logout", key="faculty_logout", type="secondary"):
                 confirm_logout()
 
 def confirm_logout():
@@ -816,175 +897,132 @@ def confirm_logout():
         st.session_state.login_attempts = 0
         st.session_state.locked = False
         st.session_state.lockout_time = None
-        st.session_state.show_add_student = False
+        st.session_state.show_add_user = False
         st.session_state.current_page = None
         st.success("✅ Logged out successfully!")
         st.rerun()
 
-# Main UI
-with st.container():
-    with open("logo.jpg", "rb") as image_file:
-        encoded_logo = base64.b64encode(image_file.read()).decode()
+# ============================
+# Main App Logic (no sidebar on main page)
+# ============================
+def main():
+    # ---------- Header ----------
+    try:
+        with open("logo.jpg", "rb") as image_file:
+            encoded_logo = base64.b64encode(image_file.read()).decode()
+    except FileNotFoundError:
+        encoded_logo = ""
     st.markdown(f"""
-    <div class="header">
-        <img src="data:image/jpeg;base64,{encoded_logo}" alt="EWU Logo" style='width: 30px; height: auto;'>
-        <h1 style='margin: 0; font-weight: 600; color: white;'>Buff University Poral</h1>
+    <div class="header" style="display:flex;align-items:center;gap:12px;">
+        {'<img src="data:image/jpeg;base64,' + encoded_logo + '" alt="Logo" style="width:30px;height:auto;border-radius:4px;">' if encoded_logo else ''}
+        <h1 style="margin:0;font-weight:600;color:white;">Bangladesh University Management System</h1>
     </div>
     """, unsafe_allow_html=True)
 
-    if st.session_state.get('logged_in') and st.session_state.role in ['student', 'admin', 'teacher']:
-        render_sidebar()
+    # ---------- Content ----------
+    st.markdown("<div class='content'>", unsafe_allow_html=True)
 
-    with st.container():
-        st.markdown("<div class='content'>", unsafe_allow_html=True)
-        if st.session_state.get('logged_in') and st.session_state.role in ['student', 'admin', 'teacher']:
-            if st.session_state.role == 'student':
-                if st.session_state.current_page == 'student_dashboard':
-                    student_dashboard()
-                elif st.session_state.current_page == 'course_advising':
-                    st.markdown("<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>Course Advising</h2>", unsafe_allow_html=True)
-                    st.info("Course advising functionality coming soon!")
-                elif st.session_state.current_page == 'class_schedule':
-                    st.markdown("<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>Class Schedule</h2>", unsafe_allow_html=True)
-                    st.info("Class schedule functionality coming soon!")
-                elif st.session_state.current_page == 'grades':
-                    st.markdown("<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>Grades</h2>", unsafe_allow_html=True)
-                    st.info("Grades functionality coming soon!")
-                elif st.session_state.current_page == 'drop_semester':
-                    st.markdown("<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>Drop Semester</h2>", unsafe_allow_html=True)
-                    st.info("Semester drop functionality coming soon!")
-                elif st.session_state.current_page == 'file_storage':
-                    file_storage()
-                else:
-                    student_dashboard()
-            elif st.session_state.role == 'admin':
-                if st.session_state.current_page == 'admin_dashboard':
-                    admin_dashboard()
-                elif st.session_state.current_page == 'user_management':
-                    st.markdown("<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>User Management</h2>", unsafe_allow_html=True)
-                    st.info("User management functionality coming soon!")
-                elif st.session_state.current_page == 'file_storage':
-                    file_storage()
-                else:
-                    admin_dashboard()
-            elif st.session_state.role == 'teacher':
-                if st.session_state.current_page == 'teacher_dashboard':
-                    teacher_dashboard()
-                elif st.session_state.current_page == 'course_management':
-                    st.markdown("<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>Course Management</h2>", unsafe_allow_html=True)
-                    st.info("Course management functionality coming soon!")
-                elif st.session_state.current_page == 'student_grades':
-                    st.markdown("<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>Student Grades</h2>", unsafe_allow_html=True)
-                    st.info("Student grades functionality coming soon!")
-                elif st.session_state.current_page == 'teacher_schedule':
-                    st.markdown("<h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>Class Schedule</h2>", unsafe_allow_html=True)
-                    st.info("Class schedule functionality coming soon!")
-                elif st.session_state.current_page == 'file_storage':
-                    file_storage()
-                else:
-                    teacher_dashboard()
+    if not st.session_state.get('logged_in'):
+        # Show login forms only (no sidebar here)
+        if st.session_state.login_type == "Student":
+            st.markdown("<h2 style='color:#FFFFFF;font-size:42px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>Student Login</h2>", unsafe_allow_html=True)
+            with st.form("student_login_form", clear_on_submit=True):
+                st.markdown("<span class='input-label'>Student ID</span>", unsafe_allow_html=True)
+                student_id_input = st.text_input("Student ID", placeholder="e.g., 2021-2-60-046", key="student_id", label_visibility="collapsed")
+                st.markdown("<span class='input-label'>Password</span>", unsafe_allow_html=True)
+                password = st.text_input("Password", type="password", placeholder="Enter password", key="student_password", label_visibility="collapsed")
+                st.markdown("<span class='input-label'>CAPTCHA</span>", unsafe_allow_html=True)
+                st.markdown(f"<div class='captcha-hint'>{st.session_state.captcha_question}</div>", unsafe_allow_html=True)
+                captcha = st.text_input("CAPTCHA Answer", placeholder="Enter answer", key="student_captcha", label_visibility="collapsed")
+                if st.form_submit_button("Sign In", type="primary", use_container_width=True):
+                    authenticate_student(student_id_input, password, captcha)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Forgot Password?", type="secondary", use_container_width=True, key="student_forgot"):
+                    st.info("📧 Email it.support@ewu.edu for help.")
+            with col2:
+                if st.button("Admin/Faculty Login", type="secondary", use_container_width=True, key="switch_to_admin", on_click=switch_login_type, args=("Admin",)):
+                    pass
         else:
-            if st.session_state.login_type == "Student":
-                st.markdown("<h2 style='color: #FFFFFF; font-size: 42px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>Student Login</h2>", unsafe_allow_html=True)
-                
-                with st.form("student_login_form", clear_on_submit=True):
-                    st.markdown("<span class='input-label'>Student ID</span>", unsafe_allow_html=True)
-                    student_id = st.text_input(
-                        "Student ID",
-                        placeholder="Enter Student ID (e.g., 2021-2-60-046)",
-                        key="student_id",
-                        label_visibility="collapsed"
-                    )
-                    st.markdown("<span class='input-label'>Password</span>", unsafe_allow_html=True)
-                    password = st.text_input(
-                        "Password",
-                        type="password",
-                        placeholder="Enter password",
-                        key="student_password",
-                        label_visibility="collapsed"
-                    )
-                    st.markdown("<span class='input-label'>CAPTCHA</span>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='captcha-hint'>{st.session_state.captcha_question}</div>", unsafe_allow_html=True)
-                    captcha = st.text_input(
-                        "CAPTCHA Answer",
-                        placeholder="Enter answer",
-                        key="student_captcha",
-                        label_visibility="collapsed"
-                    )
-                    if st.form_submit_button("Sign In", type="primary", use_container_width=True):
-                        authenticate_student(student_id, password, captcha)
-                
-                st.markdown("<div class='button-row'>", unsafe_allow_html=True)
-                col1, col2 = st.columns([1, 1])
-                with col1:
-                    if st.button("Forgot Password?", type="secondary", use_container_width=True, key="student_forgot"):
-                        st.info("📧 Email it.support@ewu.edu for help.")
-                with col2:
-                    if st.button("Admin/Teacher Login", type="secondary", use_container_width=True, key="switch_to_admin", on_click=switch_login_type, args=("Admin/Teacher",)):
-                        pass
-                st.markdown("</div>", unsafe_allow_html=True)
-                
-            else:
-                st.markdown("""
-                <div class="instruction">
-                    🔐 Authorized access only<br>
-                    📋 Activity logged<br>
-                    📞 Contact IT for support
-                </div>
-                <h2 style='color: #003087; font-size: 19px; font-weight: 600; text-align: center; margin-bottom: 0.5rem;'>Admin/Teacher Login</h2>
-                """, unsafe_allow_html=True)
-                
-                with st.form("admin_teacher_login_form", clear_on_submit=True):
-                    st.markdown("<span class='input-label'>Login as</span>", unsafe_allow_html=True)
-                    role = st.radio(
-                        "Login as",
-                        ("Admin", "Teacher"),
-                        horizontal=True,
-                        key="admin_teacher_role",
-                        label_visibility="collapsed"
-                    )
-                    st.markdown("<span class='input-label'>Username</span>", unsafe_allow_html=True)
-                    username = st.text_input(
-                        "Username",
-                        placeholder="Enter username",
-                        key="admin_username",
-                        label_visibility="collapsed"
-                    )
-                    st.markdown("<span class='input-label'>Password</span>", unsafe_allow_html=True)
-                    password = st.text_input(
-                        "Password",
-                        type="password",
-                        placeholder="Enter password",
-                        key="admin_password",
-                        label_visibility="collapsed"
-                    )
-                    st.markdown("<span class='input-label'>CAPTCHA</span>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='captcha-hint'>{st.session_state.captcha_question}</div>", unsafe_allow_html=True)
-                    captcha = st.text_input(
-                        "CAPTCHA Answer",
-                        placeholder="Enter answer",
-                        key="admin_captcha",
-                        label_visibility="collapsed"
-                    )
-                    if st.form_submit_button("Sign In", type="primary", use_container_width=True):
-                        authenticate_admin_teacher(username, password, role.lower(), captcha)
-                
-                st.markdown("<div class='button-row'>", unsafe_allow_html=True)
-                col1, col2 = st.columns([1, 1])
-                with col1:
-                    if st.button("Forgot Password?", type="secondary", use_container_width=True, key="admin_forgot"):
-                        st.info("📧 Email it.support@ewu.edu for help.")
-                with col2:
-                    if st.button("Student Login", type="secondary", use_container_width=True, key="switch_to_student", on_click=switch_login_type, args=("Student",)):
-                        pass
-                st.markdown("</div>", unsafe_allow_html=True)
-        st.markdown("</div>", unsafe_allow_html=True)
+            st.markdown("""
+            <div class="instruction">
+                🔐 Authorized access only<br>
+                📋 Activity logged<br>
+                📞 Contact IT for support
+            </div>
+            <h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>Admin/Faculty Login</h2>
+            """, unsafe_allow_html=True)
+            with st.form("admin_faculty_login_form", clear_on_submit=True):
+                st.markdown("<span class='input-label'>Login as</span>", unsafe_allow_html=True)
+                role = st.radio("Login as", ("Admin", "Faculty"), horizontal=True, key="admin_faculty_role", label_visibility="collapsed")
+                st.markdown("<span class='input-label'>Username</span>", unsafe_allow_html=True)
+                username = st.text_input("Username", placeholder="Enter username", key="admin_username", label_visibility="collapsed")
+                st.markdown("<span class='input-label'>Password</span>", unsafe_allow_html=True)
+                password = st.text_input("Password", type="password", placeholder="Enter password", key="admin_password", label_visibility="collapsed")
+                st.markdown("<span class='input-label'>CAPTCHA</span>", unsafe_allow_html=True)
+                st.markdown(f"<div class='captcha-hint'>{st.session_state.captcha_question}</div>", unsafe_allow_html=True)
+                captcha = st.text_input("CAPTCHA Answer", placeholder="Enter answer", key="admin_captcha", label_visibility="collapsed")
+                if st.form_submit_button("Sign In", type="primary", use_container_width=True):
+                    authenticate_admin_faculty(username, password, role.lower(), captcha)
 
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("Forgot Password?", type="secondary", use_container_width=True, key="admin_forgot"):
+                    st.info("📧 Email it.support@ewu.edu for help.")
+            with col2:
+                if st.button("Student Login", type="secondary", use_container_width=True, key="switch_to_student", on_click=switch_login_type, args=("Student",)):
+                    pass
+
+    else:
+        # Logged in: now render sidebar + content
+        render_sidebar()
+        if st.session_state.role == 'student':
+            page_map = {
+                'student_dashboard': student_dashboard,
+                'advising_enrollment': page_advising_and_enrollment,
+                'class_schedule': page_class_schedule,
+                'grades': page_grades,
+                'file_storage': file_storage
+            }
+        elif st.session_state.role == 'admin':
+            page_map = {
+                'admin_dashboard': admin_dashboard,
+                'user_management': page_user_management,
+                'file_storage': file_storage
+            }
+        elif st.session_state.role == 'faculty':
+            page_map = {
+                'faculty_dashboard': faculty_dashboard,
+                'course_management': page_faculty_course_management,
+                'faculty_grades': page_faculty_grades,
+                'file_storage': file_storage
+            }
+        else:
+            page_map = {}
+
+        current_page = st.session_state.current_page
+        if current_page and current_page in page_map:
+            page_map[current_page]()
+        else:
+            if st.session_state.role == 'student':
+                st.session_state.current_page = 'student_dashboard'; student_dashboard()
+            elif st.session_state.role == 'admin':
+                st.session_state.current_page = 'admin_dashboard'; admin_dashboard()
+            elif st.session_state.role == 'faculty':
+                st.session_state.current_page = 'faculty_dashboard'; faculty_dashboard()
+
+    st.markdown("</div>", unsafe_allow_html=True)
+
+    # ---------- Footer ----------
     st.markdown("""
     <div class="footer">
-        <div style="display: flex; align-items: center; justify-content: center; gap: 0.8rem; flex-wrap: wrap;">
+        <div style="display:flex;align-items:center;justify-content:center;gap:0.8rem;flex-wrap:wrap;">
             <span>© 2025 East West University. All rights reserved.</span>
             <span>Contact: <a href="mailto:it.support@ewu.edu">it.support@ewu.edu</a> | Phone: +880 1234 567890 | <a href="https://www.ewu.edu">www.ewu.edu</a></span>
         </div>
     </div>
     """, unsafe_allow_html=True)
+
+if __name__ == "__main__":
+    main()
