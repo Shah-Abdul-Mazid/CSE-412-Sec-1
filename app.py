@@ -2,7 +2,7 @@ import streamlit as st
 import pymysql
 from pymysql.err import OperationalError
 import random
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, time as dtime
 import base64
 from pathlib import Path
 
@@ -62,8 +62,8 @@ def load_css():
         .content {{
             margin: 100px auto 60px auto;
             padding: 1rem;
-            max-width: 420px;
-            width: 90%;
+            max-width: 900px;
+            width: 94%;
         }}
         .footer {{
             background: linear-gradient(90deg, #003087, #0059b3);
@@ -158,6 +158,13 @@ def load_css():
             font-size: 19px;
             color: #ffffff;
         }}
+        .pill {{
+            background: rgba(255,255,255,0.2);
+            padding: 2px 8px;
+            border-radius: 999px;
+            font-size: 12px;
+            margin-left: 6px;
+        }}
     </style>
     """, unsafe_allow_html=True)
 
@@ -225,7 +232,8 @@ def db_execute(query, params=None, fetchone=False, fetchall=False, commit=False)
         st.error(f"⚠️ Database error: {e}")
         return None
     finally:
-        conn.close()
+        if conn:
+            conn.close()
     return None
 
 # ============================
@@ -383,7 +391,6 @@ def add_user(username, password, email, role, created_at, updated_at, student_id
         st.error("❌ Please enter all required fields (Username, Password, Email, Role).")
         return False
 
-    # Uniqueness checks (simpler & robust)
     existing_username = db_execute("SELECT sl FROM users WHERE username=%s", (username,), fetchone=True)
     if existing_username:
         st.error("❌ Username already exists.")
@@ -421,68 +428,49 @@ def switch_login_type(new_type):
 # ============================
 def student_dashboard():
     sid = st.session_state.user.get('student_id', '—')
-    st.markdown("<h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>Student Dashboard</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#003087;font-size:22px;font-weight:700;text-align:center;margin-bottom:0.5rem;'>Student Dashboard</h2>", unsafe_allow_html=True)
     st.success(f"Welcome, Student ID: {sid}!")
     st.info("Use the sidebar to navigate: Advising, Enrollment, Schedule, Grades, Files.")
 
 def page_advising_and_enrollment():
-    st.subheader("Schedule Meeting")
+    st.markdown("<h3 style='color:#fff;'>Schedule Meeting</h3>", unsafe_allow_html=True)
 
-    # Default date and time for meeting
     default_datetime = datetime.now() + timedelta(days=1)
-    default_date = default_datetime.date()
-    default_time = default_datetime.time()
-
-    # Date input widget
-    meeting_date = st.date_input("Meeting Date", value=default_date)
-
-    # Time input widget
-    meeting_time = st.time_input("Meeting Time", value=default_time)
-
-    # Combine selected date and time into a single datetime object
+    meeting_date = st.date_input("Meeting Date", value=default_datetime.date())
+    meeting_time = st.time_input("Meeting Time", value=default_datetime.time())
     meeting_dt = datetime.combine(meeting_date, meeting_time)
-    st.write("Selected meeting datetime:", meeting_dt)
+    st.caption(f"Selected: {meeting_dt}")
 
-    # --- Courses search and enrollment section ---
-    st.subheader("Courses & Enrollment")
-    q = st.text_input("Search courses by name:", placeholder="e.g., Introduction to Programming")
+    st.markdown("<h3 style='color:#fff;'>Courses & Enrollment</h3>", unsafe_allow_html=True)
+    q = st.text_input("Search courses by code/title:", placeholder="e.g., CSE101 or Programming")
     cond, params = "", []
     if q:
-        cond = "WHERE code LIKE %s"
-        params = [f"%{q}%"]
+        cond = "WHERE code LIKE %s OR title LIKE %s"
+        like = f"%{q}%"
+        params = [like, like]
 
-    # Fetch courses with credit, description filtered by search query
     courses = db_execute(
         f"SELECT code, title, description, credit as credit FROM courses {cond} ORDER BY title LIMIT 200",
-        params,
-        fetchall=True
+        params, fetchall=True
     ) or []
 
-    # Get current logged in student's ID
     student_id = st.session_state.user['student_id']
-
-    # Fetch this student's enrolled courses to know which are already enrolled
-    my = db_execute(
-        "SELECT course_code FROM enrollments WHERE student_id=%s",
-        (student_id,),
-        fetchall=True
-    ) or []
+    my = db_execute("SELECT course_code FROM enrollments WHERE student_id=%s", (student_id,), fetchall=True) or []
     my_set = {m['course_code'] for m in my}
 
     if not courses:
         st.info("No courses found.")
     else:
         for c in courses:
-            st.markdown(f"**{c['title']}** ({float(c['credit']):.1f} cr) {c.get('description') or ''}")
+            st.markdown(f"**{c['code']} — {c['title']}** <span class='pill'>{float(c['credit']):.1f} cr</span>", unsafe_allow_html=True)
+            st.caption((c.get('description') or '').strip())
             col1, col2 = st.columns(2)
             with col1:
-                # Enrollment toggle buttons
                 if c['code'] in my_set:
                     if st.button(f"Drop {c['code']}", key=f"drop_{c['code']}"):
                         db_execute(
                             "DELETE FROM enrollments WHERE student_id=%s AND course_code=%s",
-                            (student_id, c['code']),
-                            commit=True
+                            (student_id, c['code']), commit=True
                         )
                         st.success("Dropped.")
                         st.rerun()
@@ -490,28 +478,22 @@ def page_advising_and_enrollment():
                     if st.button(f"Enroll in {c['code']}", key=f"enroll_{c['code']}"):
                         db_execute(
                             "INSERT INTO enrollments (student_id, course_code) VALUES (%s, %s)",
-                            (student_id, c['code']),
-                            commit=True
+                            (student_id, c['code']), commit=True
                         )
                         st.success("Enrolled.")
                         st.rerun()
             with col2:
-                # Show course schedule summary if available
                 sched = db_execute(
                     "SELECT day, start_time, end_time FROM schedules WHERE course_code=%s "
                     "ORDER BY FIELD(day,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), start_time",
-                    (c['code'],),
-                    fetchall=True
+                    (c['code'],), fetchall=True
                 ) or []
-                if sched:
-                    st.caption("; ".join([f"{r['day']} {r['start_time']}–{r['end_time']}" for r in sched]))
-                else:
-                    st.caption("No schedule set")
+                st.caption("; ".join([f"{r['day']} {r['start_time']}–{r['end_time']}" for r in sched]) if sched else "No schedule set")
+            st.divider()
 
 def page_class_schedule():
-    st.markdown("<h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>Class Schedule</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#003087;font-size:22px;font-weight:700;text-align:center;margin-bottom:0.5rem;'>Class Schedule</h2>", unsafe_allow_html=True)
     student_id = st.session_state.user['student_id']
-
     rows = db_execute(
         """
         SELECT c.title, c.credit, s.day, s.start_time, s.end_time
@@ -532,11 +514,11 @@ def page_class_schedule():
     for r in rows:
         if r['day'] != current_day:
             current_day = r['day']
-            st.subheader(current_day)
+            st.subheader(current_day or "Unscheduled")
         st.markdown(f"- **{r['title']}** ({float(r['credit']):.1f} cr) — {r['start_time']}–{r['end_time']}")
 
 def page_grades():
-    st.markdown("<h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>Grades</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#003087;font-size:22px;font-weight:700;text-align:center;margin-bottom:0.5rem;'>Grades</h2>", unsafe_allow_html=True)
     student_id = st.session_state.user['student_id']
 
     rows = db_execute(
@@ -569,9 +551,9 @@ def page_grades():
 # Admin Pages
 # ============================
 def admin_dashboard():
-    st.markdown("<h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>Admin Dashboard</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#003087;font-size:22px;font-weight:700;text-align:center;margin-bottom:0.5rem;'>Admin Dashboard</h2>", unsafe_allow_html=True)
     st.success(f"Welcome, {st.session_state.user['username']}!")
-    st.write("### Admin Control Panel")
+    st.info("Use the sidebar to manage users, courses, faculty assignments, and class schedules.")
     if st.session_state.show_add_user:
         with st.form("add_user_form", clear_on_submit=True):
             username = st.text_input("Username", placeholder="Enter username", key="new_username")
@@ -580,7 +562,6 @@ def admin_dashboard():
             role = st.selectbox("Role", options=['student', 'faculty', 'admin'], index=0, key="new_role")
             student_id = st.text_input("Student ID (for students)", placeholder="e.g., 2021-2-60-046", key="new_student_id")
 
-            # Optional timestamps
             use_custom_times = st.checkbox("Set custom Created/Updated dates (optional)", value=False)
             created_at = None
             updated_at = None
@@ -599,11 +580,10 @@ def admin_dashboard():
                     st.session_state.show_add_user = False
                     st.rerun()
     else:
-        st.info("Manage users, courses, and system settings from here. Use the sidebar for User Management and Files.")
+        st.caption("Tip: Go to Course Catalog to create courses, then assign faculty, then add the class schedule.")
 
 def page_user_management():
-    st.markdown("<h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>User Management</h2>", unsafe_allow_html=True)
-
+    st.markdown("<h2 style='color:#003087;font-size:22px;font-weight:700;text-align:center;margin-bottom:0.5rem;'>User Management</h2>", unsafe_allow_html=True)
     q = st.text_input("Search users (username/email/student_id):")
     cond, params = "", []
     if q:
@@ -625,19 +605,205 @@ def page_user_management():
             created = u['created_at'].strftime('%Y-%m-%d') if u['created_at'] else '—'
             st.markdown(f"- **{u['username']}** | {u['role'].title()} | {u['email']} | Student ID: {u['student_id'] or '—'} | Created: {created}")
 
+# --- Admin: Course Catalog (CRUD: create + simple delete) ---
+def page_admin_course_catalog():
+    st.markdown("<h2 style='color:#003087;font-size:22px;font-weight:700;text-align:center;margin-bottom:0.5rem;'>Course Catalog</h2>", unsafe_allow_html=True)
+
+    with st.form("add_course_form", clear_on_submit=True):
+        code = st.text_input("Course Code", placeholder="e.g., CSE101")
+        title = st.text_input("Title", placeholder="e.g., Introduction to Programming")
+        credit = st.number_input("Credit", min_value=0.0, max_value=10.0, step=0.5, value=3.0)
+        description = st.text_area("Description", placeholder="Short course description (optional)")
+        submitted = st.form_submit_button("Add Course", type="primary", use_container_width=True)
+        if submitted:
+            if not code or not title:
+                st.error("Course code and title are required.")
+            else:
+                exists = db_execute("SELECT code FROM courses WHERE code=%s", (code,), fetchone=True)
+                if exists:
+                    st.error("Course code already exists.")
+                else:
+                    db_execute(
+                        "INSERT INTO courses (code, title, credit, description) VALUES (%s, %s, %s, %s)",
+                        (code.strip(), title.strip(), float(credit), description.strip() if description else None),
+                        commit=True
+                    )
+                    st.success(f"Course {code} added.")
+                    st.rerun()
+
+    st.subheader("All Courses")
+    q = st.text_input("Filter by code/title", key="course_filter")
+    cond, params = "", []
+    if q:
+        cond = "WHERE code LIKE %s OR title LIKE %s"
+        like = f"%{q}%"
+        params = [like, like]
+
+    rows = db_execute(f"SELECT code, title, credit, description FROM courses {cond} ORDER BY code", params, fetchall=True) or []
+    if not rows:
+        st.info("No courses.")
+    else:
+        for r in rows:
+            with st.expander(f"{r['code']} — {r['title']} ({float(r['credit']):.1f} cr)"):
+                st.caption(r.get('description') or "No description.")
+                c1, c2 = st.columns(2)
+                with c1:
+                    if st.button(f"Delete {r['code']}", key=f"del_course_{r['code']}"):
+                        # Referential integrity: clean dependent rows (simple demo)
+                        db_execute("DELETE FROM schedules WHERE course_code=%s", (r['code'],), commit=True)
+                        db_execute("DELETE FROM enrollments WHERE course_code=%s", (r['code'],), commit=True)
+                        db_execute("DELETE FROM faculty_courses WHERE course_code=%s", (r['code'],), commit=True)
+                        db_execute("DELETE FROM grades WHERE course_code=%s", (r['code'],), commit=True)
+                        db_execute("DELETE FROM courses WHERE code=%s", (r['code'],), commit=True)
+                        st.success("Course and related records deleted.")
+                        st.rerun()
+                with c2:
+                    st.caption("Edit UI can be added later.")
+
+# --- Admin: Assign Faculty to Courses ---
+def page_admin_faculty_courses():
+    st.markdown("<h2 style='color:#003087;font-size:22px;font-weight:700;text-align:center;margin-bottom:0.5rem;'>Assign Faculty to Courses</h2>", unsafe_allow_html=True)
+
+    faculty = db_execute("SELECT username FROM users WHERE role='faculty' ORDER BY username", fetchall=True) or []
+    courses = db_execute("SELECT code, title FROM courses ORDER BY code", fetchall=True) or []
+    if not faculty or not courses:
+        st.info("Need at least one faculty user and one course in the catalog.")
+        return
+
+    fac_usernames = [f['username'] for f in faculty]
+    course_codes = [f"{c['code']} — {c['title']}" for c in courses]
+    code_by_label = {f"{c['code']} — {c['title']}": c['code'] for c in courses}
+
+    with st.form("assign_faculty_form", clear_on_submit=True):
+        sel_fac = st.selectbox("Faculty Username", fac_usernames)
+        sel_course_label = st.selectbox("Course", course_codes)
+        if st.form_submit_button("Assign", type="primary", use_container_width=True):
+            course_code = code_by_label[sel_course_label]
+            exists = db_execute(
+                "SELECT 1 FROM faculty_courses WHERE username=%s AND course_code=%s",
+                (sel_fac, course_code), fetchone=True
+            )
+            if exists:
+                st.warning("This assignment already exists.")
+            else:
+                db_execute(
+                    "INSERT INTO faculty_courses (username, course_code) VALUES (%s, %s)",
+                    (sel_fac, course_code),
+                    commit=True
+                )
+                st.success("Faculty assigned to course.")
+                st.rerun()
+
+    st.subheader("Current Assignments")
+    rows = db_execute(
+        """
+        SELECT fc.username, fc.course_code, c.title
+        FROM faculty_courses fc
+        LEFT JOIN courses c ON c.code = fc.course_code
+        ORDER BY fc.username, fc.course_code
+        """, fetchall=True
+    ) or []
+    if not rows:
+        st.caption("No assignments yet.")
+    else:
+        for r in rows:
+            col1, col2 = st.columns([4,1])
+            with col1:
+                st.markdown(f"- **{r['username']}** → {r['course_code']} — {r.get('title') or ''}")
+            with col2:
+                if st.button("Remove", key=f"remove_fc_{r['username']}_{r['course_code']}"):
+                    db_execute("DELETE FROM faculty_courses WHERE username=%s AND course_code=%s",
+                               (r['username'], r['course_code']), commit=True)
+                    st.success("Assignment removed.")
+                    st.rerun()
+
+# --- Admin: Class Schedule Management ---
+def page_admin_class_schedule():
+    st.markdown("<h2 style='color:#003087;font-size:22px;font-weight:700;text-align:center;margin-bottom:0.5rem;'>Class Schedule</h2>", unsafe_allow_html=True)
+    courses = db_execute("SELECT code, title FROM courses ORDER BY code", fetchall=True) or []
+    if not courses:
+        st.info("No courses found. Add courses first.")
+        return
+
+    labels = [f"{c['code']} — {c['title']}" for c in courses]
+    code_by_label = {f"{c['code']} — {c['title']}": c['code'] for c in courses}
+    days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday']
+
+    with st.form("add_schedule_form", clear_on_submit=True):
+        sel_label = st.selectbox("Course", labels)
+        sel_day = st.selectbox("Day", days, index=0)
+        start_t = st.time_input("Start Time", value=dtime(9,0))
+        end_t   = st.time_input("End Time", value=dtime(10,30))
+        if st.form_submit_button("Add Slot", type="primary", use_container_width=True):
+            if end_t <= start_t:
+                st.error("End time must be after start time.")
+            else:
+                course_code = code_by_label[sel_label]
+                # optional: check overlap
+                overlap = db_execute(
+                    """
+                    SELECT 1 FROM schedules
+                    WHERE course_code=%s AND day=%s
+                      AND NOT (%s >= end_time OR %s <= start_time)
+                    """,
+                    (course_code, sel_day, start_t, end_t), fetchone=True
+                )
+                if overlap:
+                    st.warning("Time slot overlaps an existing slot for this course.")
+                else:
+                    db_execute(
+                        "INSERT INTO schedules (course_code, day, start_time, end_time) VALUES (%s,%s,%s,%s)",
+                        (course_code, sel_day, start_t, end_t), commit=True
+                    )
+                    st.success("Time slot added.")
+                    st.rerun()
+
+    st.subheader("Current Schedule")
+    q = st.text_input("Filter by course code", key="sched_filter")
+    cond, params = "", []
+    if q:
+        cond = "WHERE s.course_code LIKE %s"
+        params = [f"%{q}%"]
+
+    rows = db_execute(
+        f"""
+        SELECT s.course_code, c.title, s.day, s.start_time, s.end_time
+        FROM schedules s
+        LEFT JOIN courses c ON c.code = s.course_code
+        {cond}
+        ORDER BY FIELD(s.day,'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'), s.start_time, s.course_code
+        """,
+        params, fetchall=True
+    ) or []
+
+    if not rows:
+        st.caption("No schedule entries.")
+    else:
+        for r in rows:
+            col1, col2 = st.columns([5,1])
+            with col1:
+                st.markdown(f"- **{r['course_code']} — {r.get('title') or ''}** : {r['day']} {r['start_time']}–{r['end_time']}")
+            with col2:
+                if st.button("Delete", key=f"del_sched_{r['course_code']}_{r['day']}_{r['start_time']}"):
+                    db_execute(
+                        "DELETE FROM schedules WHERE course_code=%s AND day=%s AND start_time=%s AND end_time=%s",
+                        (r['course_code'], r['day'], r['start_time'], r['end_time']), commit=True
+                    )
+                    st.success("Schedule entry deleted.")
+                    st.rerun()
+
 # ============================
 # Faculty Pages
 # ============================
 def faculty_dashboard():
-    st.markdown("<h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>Faculty Dashboard</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#003087;font-size:22px;font-weight:700;text-align:center;margin-bottom:0.5rem;'>Faculty Dashboard</h2>", unsafe_allow_html=True)
     st.success(f"Welcome, {st.session_state.user['username']}!")
     st.info("Use the sidebar: Course Management, Grades, Files.")
 
 def page_faculty_course_management():
-    st.markdown("<h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>Course Management</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#003087;font-size:22px;font-weight:700;text-align:center;margin-bottom:0.5rem;'>Course Management</h2>", unsafe_allow_html=True)
     username = st.session_state.user['username']
 
-    # Fetch courses assigned to the faculty member
     courses = db_execute(
         """
         SELECT c.code, c.title, c.credit as credit
@@ -656,7 +822,6 @@ def page_faculty_course_management():
     for c in courses:
         st.markdown(f"**{c['title']}** ({float(c['credit']):.1f} cr)")
         with st.expander("Roster"):
-            # Fetch the roster of students enrolled in this course
             roster = db_execute(
                 """
                 SELECT u.student_id, u.username
@@ -672,7 +837,6 @@ def page_faculty_course_management():
             else:
                 for r in roster:
                     st.markdown(f"- {r['student_id'] or r['username']}")
-        # Quick schedule view
         sched = db_execute(
             """
             SELECT day, start_time, end_time
@@ -687,10 +851,9 @@ def page_faculty_course_management():
         st.markdown("---")
 
 def page_faculty_grades():
-    st.markdown("<h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>Enter Grades</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#003087;font-size:22px;font-weight:700;text-align:center;margin-bottom:0.5rem;'>Enter Grades</h2>", unsafe_allow_html=True)
     username = st.session_state.user['username']
 
-    # Fetch courses the faculty member teaches
     courses = db_execute(
         """
         SELECT c.code
@@ -705,12 +868,10 @@ def page_faculty_grades():
         st.info("No courses to grade.")
         return
 
-    # Prepare options for selectbox - map code to code
     options = {f["code"]: f["code"] for f in courses}
     sel_label = st.selectbox("Select course:", list(options.keys()))
     course_code = options[sel_label]
 
-    # Fetch enrolled students and their grades for the selected course
     roster = db_execute(
         """
         SELECT u.student_id, u.username,
@@ -727,7 +888,6 @@ def page_faculty_grades():
         st.info("No students enrolled.")
         return
 
-    # Form to enter/update grades
     with st.form("grade_entry"):
         new_grades = {}
         for r in roster:
@@ -765,7 +925,7 @@ def page_faculty_grades():
 # Shared: File Storage UI
 # ============================
 def file_storage():
-    st.markdown("<h2 style='color:#003087;font-size:19px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>File Storage</h2>", unsafe_allow_html=True)
+    st.markdown("<h2 style='color:#003087;font-size:22px;font-weight:700;text-align:center;margin-bottom:0.5rem;'>File Storage</h2>", unsafe_allow_html=True)
     st.info("Upload a text/image file or create a text file below:")
 
     user_key = st.session_state.user.get('student_id') or st.session_state.user.get('username') or st.session_state.user.get('id')
@@ -827,23 +987,15 @@ def render_sidebar():
             st.markdown("<h2 style='color: #003087; font-size: 19px;'>Student Portal</h2>", unsafe_allow_html=True)
             st.markdown(f"<p style='color: #374151; font-size: 19px;'>Hi, {st.session_state.user['student_id']}</p>", unsafe_allow_html=True)
             if st.button("Dashboard", key="student_dashboard_btn"):
-                st.session_state.current_page = 'student_dashboard'
-                st.rerun()
+                st.session_state.current_page = 'student_dashboard'; st.rerun()
             if st.button("Course Advising", key="student_advising"):
-                st.session_state.current_page = 'advising_enrollment'
-                st.rerun()
+                st.session_state.current_page = 'advising_enrollment'; st.rerun()
             if st.button("Class Schedule", key="student_schedule"):
-                st.session_state.current_page = 'class_schedule'
-                st.rerun()
+                st.session_state.current_page = 'class_schedule'; st.rerun()
             if st.button("Grades", key="student_grades"):
-                st.session_state.current_page = 'grades'
-                st.rerun()
-            if st.button("Drop Semester", key="student_drop"):
-                st.session_state.current_page = 'drop_semester'  # (no page implemented yet)
-                st.rerun()
+                st.session_state.current_page = 'grades'; st.rerun()
             if st.button("File Storage", key="student_file_storage"):
-                st.session_state.current_page = 'file_storage'
-                st.rerun()
+                st.session_state.current_page = 'file_storage'; st.rerun()
             if st.button("Logout", key="student_logout", type="secondary"):
                 confirm_logout()
         elif st.session_state.role == 'admin':
@@ -851,41 +1003,38 @@ def render_sidebar():
             st.markdown(f"<p style='color: #374151; font-size: 19px;'>Hi, {st.session_state.user['username']}</p>", unsafe_allow_html=True)
             if st.button("Dashboard", key="admin_dashboard"):
                 st.session_state.show_add_user = False
-                st.session_state.current_page = 'admin_dashboard'
-                st.rerun()
-            if st.button("Add User", key="admin_add_student"):
+                st.session_state.current_page = 'admin_dashboard'; st.rerun()
+            if st.button("Add User", key="admin_add_user"):
                 st.session_state.show_add_user = True
-                st.session_state.current_page = 'admin_dashboard'
-                st.rerun()
+                st.session_state.current_page = 'admin_dashboard'; st.rerun()
             if st.button("User Management", key="admin_users"):
                 st.session_state.show_add_user = False
-                st.session_state.current_page = 'user_management'
-                st.rerun()
+                st.session_state.current_page = 'user_management'; st.rerun()
+            if st.button("Course Catalog", key="admin_courses"):
+                st.session_state.show_add_user = False
+                st.session_state.current_page = 'admin_course_catalog'; st.rerun()
+            if st.button("Assign Faculty", key="admin_faculty_courses"):
+                st.session_state.show_add_user = False
+                st.session_state.current_page = 'admin_faculty_courses'; st.rerun()
+            if st.button("Class Schedule", key="admin_class_schedule"):
+                st.session_state.show_add_user = False
+                st.session_state.current_page = 'admin_class_schedule'; st.rerun()
             if st.button("File Storage", key="admin_file_storage"):
                 st.session_state.show_add_user = False
-                st.session_state.current_page = 'file_storage'
-                st.rerun()
+                st.session_state.current_page = 'file_storage'; st.rerun()
             if st.button("Logout", key="admin_logout", type="secondary"):
                 confirm_logout()
         elif st.session_state.role == 'faculty':
             st.markdown("<h2 style='color: #003087; font-size: 19px;'>Faculty Portal</h2>", unsafe_allow_html=True)
             st.markdown(f"<p style='color: #374151; font-size: 19px;'>Hi, {st.session_state.user['username']}</p>", unsafe_allow_html=True)
             if st.button("Dashboard", key="faculty_dashboard"):
-                st.session_state.current_page = 'faculty_dashboard'
-                st.rerun()
+                st.session_state.current_page = 'faculty_dashboard'; st.rerun()
             if st.button("Course Management", key="faculty_courses"):
-                st.session_state.current_page = 'course_management'
-                st.rerun()
-            if st.button("Student Grades", key="faculty_grades_btn"):
-                st.session_state.current_page = 'faculty_grades'
-                st.rerun()
-            if st.button("Class Schedule", key="faculty_schedule"):
-                # No dedicated page exists; route to course management for now
-                st.session_state.current_page = 'course_management'
-                st.rerun()
+                st.session_state.current_page = 'course_management'; st.rerun()
+            if st.button("Enter Grades", key="faculty_grades_btn"):
+                st.session_state.current_page = 'faculty_grades'; st.rerun()
             if st.button("File Storage", key="faculty_file_storage"):
-                st.session_state.current_page = 'file_storage'
-                st.rerun()
+                st.session_state.current_page = 'file_storage'; st.rerun()
             if st.button("Logout", key="faculty_logout", type="secondary"):
                 confirm_logout()
 
@@ -925,7 +1074,7 @@ def main():
     if not st.session_state.get('logged_in'):
         # Show login forms only (no sidebar here)
         if st.session_state.login_type == "Student":
-            st.markdown("<h2 style='color:#FFFFFF;font-size:42px;font-weight:600;text-align:center;margin-bottom:0.5rem;'>Student Login</h2>", unsafe_allow_html=True)
+            st.markdown("<h2 style='color:#FFFFFF;font-size:42px;font-weight:700;text-align:center;margin-bottom:0.5rem;'>Student Login</h2>", unsafe_allow_html=True)
             with st.form("student_login_form", clear_on_submit=True):
                 st.markdown("<span class='input-label'>Student ID</span>", unsafe_allow_html=True)
                 student_id_input = st.text_input("Student ID", placeholder="e.g., 2021-2-60-046", key="student_id", label_visibility="collapsed")
@@ -942,8 +1091,8 @@ def main():
                 if st.button("Forgot Password?", type="secondary", use_container_width=True, key="student_forgot"):
                     st.info("📧 Email it.support@ewu.edu for help.")
             with col2:
-                if st.button("Admin/Faculty Login", type="secondary", use_container_width=True, key="switch_to_admin", on_click=switch_login_type, args=("Admin",)):
-                    pass
+                if st.button("Admin/Faculty Login", type="secondary", use_container_width=True, key="switch_to_admin"):
+                    switch_login_type("Admin"); st.rerun()
         else:
             st.markdown("""
             <div class="instruction">
@@ -971,8 +1120,8 @@ def main():
                 if st.button("Forgot Password?", type="secondary", use_container_width=True, key="admin_forgot"):
                     st.info("📧 Email it.support@ewu.edu for help.")
             with col2:
-                if st.button("Student Login", type="secondary", use_container_width=True, key="switch_to_student", on_click=switch_login_type, args=("Student",)):
-                    pass
+                if st.button("Student Login", type="secondary", use_container_width=True, key="switch_to_student"):
+                    switch_login_type("Student"); st.rerun()
 
     else:
         # Logged in: now render sidebar + content
@@ -989,6 +1138,9 @@ def main():
             page_map = {
                 'admin_dashboard': admin_dashboard,
                 'user_management': page_user_management,
+                'admin_course_catalog': page_admin_course_catalog,
+                'admin_faculty_courses': page_admin_faculty_courses,
+                'admin_class_schedule': page_admin_class_schedule,
                 'file_storage': file_storage
             }
         elif st.session_state.role == 'faculty':
@@ -1018,8 +1170,8 @@ def main():
     st.markdown("""
     <div class="footer">
         <div style="display:flex;align-items:center;justify-content:center;gap:0.8rem;flex-wrap:wrap;">
-            <span>© 2025 East West University. All rights reserved.</span>
-            <span>Contact: <a href="mailto:it.support@ewu.edu">it.support@ewu.edu</a> | Phone: +880 1234 567890 | <a href="https://www.ewu.edu">www.ewu.edu</a></span>
+            <span>© 2025 Bangladesh Gen Z University Management System. All rights reserved.</span>
+            <span>Contact: <a href="mailto:it.support@bangladeshgenzuniversity.edu">it.support@bangladeshgenzuniversity.edu</a> | Phone: +880 1234 567890 | <a href="https://www.ewu.edu">www.ewu.edu</a></span>
         </div>
     </div>
     """, unsafe_allow_html=True)
