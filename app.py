@@ -10,7 +10,7 @@ from pathlib import Path
 # Streamlit page config
 # ============================
 st.set_page_config(
-    page_title="Bangladesh Gen Z University Management System",
+    page_title="Bangladesh University Management System",
     page_icon="🎓",
     layout="centered",
     initial_sidebar_state="expanded"
@@ -1064,7 +1064,7 @@ def main():
     st.markdown(f"""
     <div class="header" style="display:flex;align-items:center;gap:12px;">
         {'<img src="data:image/jpeg;base64,' + encoded_logo + '" alt="Logo" style="width:30px;height:auto;border-radius:4px;">' if encoded_logo else ''}
-        <h1 style="margin:0;font-weight:600;color:white;">Bangladesh Gen Z University Management System</h1>
+        <h1 style="margin:0;font-weight:600;color:white;">Bangladesh University Management System</h1>
     </div>
     """, unsafe_allow_html=True)
 
@@ -1170,8 +1170,8 @@ def main():
     st.markdown("""
     <div class="footer">
         <div style="display:flex;align-items:center;justify-content:center;gap:0.8rem;flex-wrap:wrap;">
-            <span>© 2025 Bangladesh Gen Z University Management System. All rights reserved.</span>
-            <span>Contact: <a href="mailto:it.support@bangladeshgenzuniversity.edu">it.support@bangladeshgenzuniversity.edu</a> | Phone: +880 1234 567890 | <a href="https://www.ewu.edu">www.ewu.edu</a></span>
+            <span>© 2025 Bangladesh University Management System. All rights reserved.</span>
+            <span>Contact: <a href="mailto:it.support@bangladeshuniversity.edu">it.support@bangladeshuniversity.edu</a> | Phone: +880 1234 567890 | <a href="https://www.ewu.edu">www.ewu.edu</a></span>
         </div>
     </div>
     """, unsafe_allow_html=True)
